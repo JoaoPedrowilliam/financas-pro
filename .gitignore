@@ -1,0 +1,11 @@
+node_modules
+.next
+/out
+.vercel
+.env
+.env.local
+*.tsbuildinfo
+next-env.d.ts
+
+# Config local do Claude Code (caminhos desta maquina)
+.claude/

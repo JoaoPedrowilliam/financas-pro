@@ -1,0 +1,70 @@
+# Publica o Finanças Pro no GitHub Pages a cada push na branch principal.
+#
+# O app é inteiramente client-side (os dados vivem no localStorage do navegador),
+# então um site estático serve. A única parte que precisa de servidor é a rota
+# /api/cotacoes — ela é removida antes de compilar, porque route handler que lê a
+# Request não sobrevive ao `output: 'export'`. A tela de investimentos já trata a
+# ausência dela e explica o motivo a quem clicar em "Atualizar cotações".
+name: Publicar no GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # Permite publicar manualmente pela aba Actions, sem precisar de um commit novo.
+  workflow_dispatch:
+
+# Permissões mínimas que o deploy de Pages exige.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Se você empurrar dois commits seguidos, o segundo espera o primeiro terminar
+# em vez de os dois brigarem pelo mesmo ambiente.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Remover a rota de API
+        # O export estático não compila route handlers que dependem da Request.
+        run: rm -rf src/app/api
+
+      - name: Compilar o site estático
+        env:
+          EXPORT_ESTATICO: '1'
+          # O site fica em usuario.github.io/NOME-DO-REPO, então o app precisa
+          # saber que mora numa subpasta. Lido do próprio repositório: renomear
+          # o repo não quebra o build.
+          BASE_PATH: /${{ github.event.repository.name }}
+        run: npm run build
+
+      - name: Desativar o Jekyll
+        # Sem isso o Pages ignora a pasta _next, que começa com underscore.
+        run: touch out/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

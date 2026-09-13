@@ -1,0 +1,198 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /**
+   * Identidade: preto e grafite como estrutura, verde como única cor de ação.
+   * Os matizes ficam todos em 0° (cinza puro) — a cor entra só onde significa
+   * alguma coisa: verde = entrou/deu certo, vermelho = saiu/atenção, âmbar = aviso.
+   * Trocar o tema é trocar estes valores; nenhum componente carrega cor fixa.
+   */
+  :root {
+    /* Claro: cinzas neutros. Nada de branco puro no fundo — cansa menos. */
+    --surface: 0 0% 97%;
+    --surface-sidebar: 0 0% 99%;
+    --surface-raised: 0 0% 100%;
+    --surface-sunken: 0 0% 94%;
+
+    --ink: 0 0% 9%;
+    --ink-muted: 0 0% 38%;
+    --ink-faint: 0 0% 46%;
+
+    --line: 0 0% 89%;
+    --line-strong: 0 0% 79%;
+
+    /* Verde de ação. `ink` é a versão legível como texto; `fg` é o que fica POR CIMA do verde. */
+    --cedula: 142 76% 29%;
+    --cedula-soft: 142 52% 94%;
+    --cedula-ink: 142 78% 24%;
+    --cedula-fg: 0 0% 100%;
+
+    /* Grafite: o antigo azul de apoio virou neutro. Informação sem hierarquia de cor. */
+    --aco: 0 0% 32%;
+    --aco-soft: 0 0% 93%;
+
+    --ambar: 38 95% 28%;
+    --ambar-soft: 38 90% 93%;
+
+    --coral: 0 72% 42%;
+    --coral-soft: 0 80% 96%;
+    --coral-fg: 0 0% 100%;
+    /* Fundo do botão destrutivo: texto branco por cima precisa de 4.5:1. */
+    --coral-strong: 0 72% 40%;
+
+    /* Terceira cor, usada só em classes de ativo e parcelas. Verde-petróleo, família do verde. */
+    --violeta: 172 55% 27%;
+    --violeta-soft: 172 45% 93%;
+
+    --ring: 142 72% 36%;
+
+    /* ── Gráficos ──
+       Passos escolhidos contra a superfície de cada tema e validados para
+       daltonismo: verde e vermelho se separam por LUMINOSIDADE, não só por
+       matiz — sem isso um deuteranope vê duas barras idênticas. */
+    --graf-receita: 142 76% 36%;
+    --graf-despesa: 0 74% 42%;
+    --graf-economia: 240 4% 26%;
+
+    /* Rampa sequencial (uma cor só, escuro → claro) para partes de um todo. */
+    --graf-1: 152 60% 20%;
+    --graf-2: 143 64% 24%;
+    --graf-3: 142 72% 29%;
+    --graf-4: 142 76% 36%;
+    --graf-5: 142 71% 45%;
+    --graf-6: 141 79% 58%;
+    --graf-resto: 0 0% 64%;
+
+    --radius-card: 16px;
+    --radius-control: 10px;
+
+    --shadow-raised: 0 1px 2px hsl(0 0% 0% / 0.04), 0 8px 24px -14px hsl(0 0% 0% / 0.14);
+    --shadow-float: 0 12px 48px -16px hsl(0 0% 0% / 0.24);
+  }
+
+  .dark {
+    /* Escuro: a paleta de referência do produto. Quatro degraus de preto. */
+    --surface: 0 0% 4%;
+    --surface-sidebar: 0 0% 6%;
+    --surface-raised: 0 0% 9%;
+    --surface-sunken: 0 0% 12%;
+
+    --ink: 0 0% 96%;
+    --ink-muted: 0 0% 64%;
+    --ink-faint: 0 0% 54%;
+
+    --line: 0 0% 16.5%;
+    --line-strong: 0 0% 26%;
+
+    --cedula: 142 71% 45%;
+    --cedula-soft: 142 44% 13%;
+    --cedula-ink: 141 68% 62%;
+    /* Texto sobre o verde é quase preto: branco sobre #22C55E dá 1.9:1 e reprova. */
+    --cedula-fg: 150 60% 6%;
+
+    --aco: 0 0% 72%;
+    --aco-soft: 0 0% 16%;
+
+    --ambar: 38 92% 50%;
+    --ambar-soft: 38 42% 14%;
+
+    --coral: 0 84% 60%;
+    --coral-soft: 0 44% 12%;
+    --coral-fg: 0 0% 100%;
+    --coral-strong: 0 72% 47%;
+
+    --violeta: 170 58% 45%;
+    --violeta-soft: 170 40% 13%;
+
+    --ring: 142 71% 45%;
+
+    --graf-receita: 142 69% 58%;
+    --graf-despesa: 0 72% 56%;
+    --graf-economia: 240 5% 66%;
+
+    --graf-1: 141 79% 73%;
+    --graf-2: 142 68% 58%;
+    --graf-3: 142 71% 49%;
+    --graf-4: 142 72% 39%;
+    --graf-5: 143 66% 31%;
+    --graf-6: 145 64% 24%;
+    --graf-resto: 0 0% 45%;
+
+    --shadow-raised: 0 1px 2px hsl(0 0% 0% / 0.5), 0 10px 28px -16px hsl(0 0% 0% / 0.8);
+    --shadow-float: 0 16px 56px -18px hsl(0 0% 0% / 0.9);
+  }
+
+  * {
+    border-color: hsl(var(--line));
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: hsl(var(--surface));
+    color: hsl(var(--ink));
+    font-feature-settings: 'cv05' 1, 'ss01' 1;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Todo número na interface é tabular: colunas de valores alinham. */
+  .cifra,
+  table td,
+  table th {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background: hsl(var(--cedula) / 0.24);
+  }
+}
+
+@layer components {
+  .painel {
+    @apply rounded-card border border-line bg-surface-raised;
+  }
+
+  /* Card que reage ao ponteiro. Só isso: 1px de borda e nada de deslocamento. */
+  .painel-interativo {
+    @apply transition-[border-color,box-shadow] duration-200;
+  }
+  .painel-interativo:hover {
+    border-color: hsl(var(--line-strong));
+    box-shadow: var(--shadow-float);
+  }
+
+  /* Trilha de scroll discreta — listas de lançamentos são longas. */
+  .scroll-fino {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--line-strong)) transparent;
+  }
+  .scroll-fino::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-fino::-webkit-scrollbar-thumb {
+    background: hsl(var(--line-strong));
+    border-radius: 99px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

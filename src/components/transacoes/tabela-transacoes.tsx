@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Valor } from '@/components/shared/valor';
 import { useFinancas } from '@/store/use-financas';
+import { useAcao } from '@/lib/acoes';
 import { dataCurta } from '@/lib/format';
 import { cn, dataDe } from '@/lib/utils';
 import type { Transacao } from '@/types';
@@ -35,6 +36,7 @@ export function TabelaTransacoes({
   onExcluir: (t: Transacao) => void;
 }) {
   const { categorias, contas, cartoes, alternarStatus } = useFinancas();
+  const { executar } = useAcao();
   const [ordem, setOrdem] = React.useState<{ coluna: Coluna; desc: boolean }>({
     coluna: 'data',
     desc: true,
@@ -158,7 +160,13 @@ export function TabelaTransacoes({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => alternarStatus(t.id)}>
+            <DropdownMenuItem
+              onSelect={() =>
+                executar(() => alternarStatus(t.id), {
+                  aoFalhar: 'Não foi possível mudar o status',
+                })
+              }
+            >
               {t.status === 'pago' ? <Clock /> : <Check />}
               Marcar como {t.status === 'pago' ? 'pendente' : 'pago'}
             </DropdownMenuItem>

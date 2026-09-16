@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useFinancas } from '@/store/use-financas';
+import { useAcao } from '@/lib/acoes';
 import { custoSeManter, planoDeQuitacao, type Estrategia } from '@/lib/financas';
 import { moeda } from '@/lib/format';
 import { hojeISO, somar } from '@/lib/utils';
@@ -37,6 +38,7 @@ import type { Divida } from '@/types';
 
 export default function PaginaDividas() {
   const { dividas, removeDivida, registrarPagamento, perfil } = useFinancas();
+  const { executar } = useAcao();
 
   const [estrategia, setEstrategia] = React.useState<Estrategia>('avalanche');
   const [orcamento, setOrcamento] = React.useState(0);
@@ -438,16 +440,20 @@ export default function PaginaDividas() {
       <DialogPagamento
         divida={pagando}
         onFechar={() => setPagando(null)}
-        onRegistrar={(valor, data, obs) => {
+        onRegistrar={async (valor, data, obs) => {
           if (!pagando) return;
-          registrarPagamento(pagando.id, { valor, data, observacao: obs });
           const quitou = valor >= (pagando.valorAcordo ?? pagando.saldoAtual);
-          toast.success(quitou ? `${pagando.credor} quitada` : 'Pagamento registrado', {
-            description: quitou
-              ? 'Uma pendência a menos no seu nome.'
-              : `${moeda(valor)} abatidos do saldo devedor.`,
-          });
-          setPagando(null);
+          const ok = await executar(
+            () => registrarPagamento(pagando.id, { valor, data, observacao: obs }),
+            {
+              sucesso: quitou ? `${pagando.credor} quitada` : 'Pagamento registrado',
+              descricao: quitou
+                ? 'Uma pendência a menos no seu nome.'
+                : `${moeda(valor)} abatidos do saldo devedor.`,
+              aoFalhar: 'O pagamento não foi registrado',
+            },
+          );
+          if (ok) setPagando(null);
         }}
       />
       <Confirmar
@@ -458,8 +464,10 @@ export default function PaginaDividas() {
         rotuloConfirmar="Excluir dívida"
         onConfirmar={() => {
           if (excluindo) {
-            removeDivida(excluindo.id);
-            toast.success('Dívida excluída');
+            executar(() => removeDivida(excluindo.id), {
+              sucesso: 'Dívida excluída',
+              aoFalhar: 'Não foi possível excluir a dívida',
+            });
           }
         }}
       />

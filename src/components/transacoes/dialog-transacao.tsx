@@ -16,6 +16,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { CampoValor } from '@/components/shared/campo-valor';
 import { useFinancas } from '@/store/use-financas';
+import { useAcao } from '@/lib/acoes';
 import { moeda } from '@/lib/format';
 import { cn, hojeISO, uid } from '@/lib/utils';
 import type { Anexo, Transacao, TipoTransacao } from '@/types';
@@ -80,6 +81,7 @@ export function DialogTransacao({
   cartaoInicial?: string;
 }) {
   const { contas, cartoes, categorias, addTransacao, updateTransacao } = useFinancas();
+  const { executando, executar } = useAcao();
   const [form, setForm] = React.useState<Rascunho>(RASCUNHO_VAZIO);
   const [novaEtiqueta, setNovaEtiqueta] = React.useState('');
   const [erros, setErros] = React.useState<Record<string, string>>({});
@@ -170,7 +172,7 @@ export function DialogTransacao({
     return Object.keys(e).length === 0;
   };
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!validar()) return;
 
     const base = {
@@ -188,17 +190,26 @@ export function DialogTransacao({
       anexos: form.anexos,
     };
 
-    if (editando && transacao) {
-      updateTransacao(transacao.id, base);
-      toast.success('Lançamento atualizado');
-    } else {
-      const parcelas = form.parcelar && form.cartaoId ? form.parcelas : undefined;
-      addTransacao({ ...base, parcelas });
-      toast.success(
-        parcelas ? `Compra dividida em ${parcelas}x de ${moeda(form.valor / parcelas)}` : 'Lançamento salvo',
-      );
-    }
-    onAbertoChange(false);
+    const parcelas = !editando && form.parcelar && form.cartaoId ? form.parcelas : undefined;
+
+    const ok = await executar(
+      () =>
+        editando && transacao
+          ? updateTransacao(transacao.id, base)
+          : addTransacao({ ...base, parcelas }),
+      {
+        sucesso: editando
+          ? 'Lançamento atualizado'
+          : parcelas
+            ? `Compra dividida em ${parcelas}x de ${moeda(form.valor / parcelas)}`
+            : 'Lançamento salvo',
+        aoFalhar: 'Lançamento não foi salvo',
+      },
+    );
+
+    // Falhou: o diálogo fica aberto com tudo que foi digitado, para reenviar
+    // sem redigitar.
+    if (ok) onAbertoChange(false);
   };
 
   return (
@@ -537,7 +548,9 @@ export function DialogTransacao({
           <Button variant="contorno" onClick={() => onAbertoChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={salvar}>{editando ? 'Salvar alterações' : 'Salvar lançamento'}</Button>
+          <Button onClick={salvar} disabled={executando}>
+            {executando ? "Salvando…" : editando ? "Salvar alterações" : "Salvar lançamento"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

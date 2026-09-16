@@ -49,7 +49,23 @@ jobs:
           # saber que mora numa subpasta. Lido do próprio repositório: renomear
           # o repo não quebra o build.
           BASE_PATH: /${{ github.event.repository.name }}
+          # Credenciais do Supabase. São chaves públicas — ficam embutidas no
+          # bundle de qualquer forma —, então tanto faz cadastrá-las como
+          # Secrets ou como Variables do repositório; aceitamos as duas formas.
+          # A service_role key NÃO pode aparecer aqui em hipótese alguma.
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
         run: npm run build
+
+      - name: Conferir se as credenciais entraram no build
+        # Sem isto, um segredo faltando gera um site que compila e publica, mas
+        # não deixa ninguém entrar — e a causa só apareceria no navegador.
+        run: |
+          if grep -rqs "supabase.co" out/_next/static; then
+            echo "Credenciais do Supabase presentes no bundle."
+          else
+            echo "::warning::NEXT_PUBLIC_SUPABASE_URL não chegou ao build. O site vai subir, mas a tela de login pedirá configuração. Cadastre os valores em Settings → Secrets and variables → Actions."
+          fi
 
       - name: Desativar o Jekyll
         # Sem isso o Pages ignora a pasta _next, que começa com underscore.

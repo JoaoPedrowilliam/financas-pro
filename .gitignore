@@ -2,10 +2,15 @@ node_modules
 .next
 /out
 .vercel
+
+# Variáveis de ambiente. O .env.example é versionado de propósito: documenta
+# quais nomes existem, sempre sem valores.
 .env
-.env.local
+.env.*
+!.env.example
+
 *.tsbuildinfo
 next-env.d.ts
 
-# Config local do Claude Code (caminhos desta maquina)
+# Config local do Claude Code (caminhos desta máquina)
 .claude/

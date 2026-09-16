@@ -26,6 +26,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useFinancas } from '@/store/use-financas';
+import { useAcao } from '@/lib/acoes';
 import { alocacaoPorClasse, resultadoCarteira } from '@/lib/financas';
 import { moeda, numero, percentual } from '@/lib/format';
 import { hojeISO } from '@/lib/utils';
@@ -45,6 +46,7 @@ const corClasse = (c: ClasseAtivo) => CLASSES.find((x) => x.valor === c)?.cor ??
 
 export default function PaginaInvestimentos() {
   const { ativos, perfil, removeAtivo, aplicarCotacoes } = useFinancas();
+  const { executar } = useAcao();
 
   const [dialogAberto, setDialogAberto] = React.useState(false);
   const [editando, setEditando] = React.useState<Ativo | null>(null);
@@ -91,7 +93,9 @@ export default function PaginaInvestimentos() {
           return [c.ticker, { preco }];
         }),
       );
-      aplicarCotacoes(mapa);
+      // Grava os preços novos antes de anunciar. Se o banco recusar, o catch
+      // abaixo mostra o erro em vez de um "atualizadas" que não aconteceu.
+      await aplicarCotacoes(mapa);
 
       const simulados = dados.cotacoes.filter((c) => c.fonte === 'simulado').length;
       toast.success(`${dados.cotacoes.length} cotações atualizadas`, {
@@ -359,8 +363,10 @@ export default function PaginaInvestimentos() {
         rotuloConfirmar="Remover ativo"
         onConfirmar={() => {
           if (excluindo) {
-            removeAtivo(excluindo.id);
-            toast.success('Ativo removido');
+            executar(() => removeAtivo(excluindo.id), {
+              sucesso: `${excluindo.ticker} removido da carteira`,
+              aoFalhar: 'Não foi possível remover o ativo',
+            });
           }
         }}
       />
@@ -399,6 +405,7 @@ function DialogAtivo({
   ativo?: Ativo | null;
 }) {
   const { addAtivo, updateAtivo } = useFinancas();
+  const { executando, executar } = useAcao();
   const [form, setForm] = React.useState({
     ticker: '',
     nome: '',
@@ -442,7 +449,7 @@ function DialogAtivo({
 
   const rendaFixa = form.classe === 'renda-fixa';
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.ticker.trim()) return setErro('Informe o código do ativo.');
     if (form.quantidade <= 0) return setErro('A quantidade precisa ser maior que zero.');
     if (form.precoMedio <= 0) return setErro('Informe o preço médio de compra.');
@@ -460,14 +467,14 @@ function DialogAtivo({
       corretora: form.corretora.trim() || undefined,
     };
 
-    if (ativo) {
-      updateAtivo(ativo.id, dados);
-      toast.success('Ativo atualizado');
-    } else {
-      addAtivo(dados);
-      toast.success('Ativo adicionado à carteira');
-    }
-    onAbertoChange(false);
+    const ok = await executar(
+      () => (ativo ? updateAtivo(ativo.id, dados) : addAtivo(dados)),
+      {
+        sucesso: ativo ? 'Ativo atualizado' : 'Ativo adicionado à carteira',
+        aoFalhar: 'O ativo não foi salvo',
+      },
+    );
+    if (ok) onAbertoChange(false);
   };
 
   return (

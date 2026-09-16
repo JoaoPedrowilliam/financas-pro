@@ -15,7 +15,7 @@ import { AlternarTema } from './alternar-tema';
 import { TODOS_ITENS } from './navegacao';
 import { useFinancas } from '@/store/use-financas';
 import { iniciais } from '@/lib/format';
-import { encerrarSessao } from '@/lib/sessao';
+import { useAuth } from '@/providers/auth';
 
 export function Topbar({
   onAbrirMenu,
@@ -28,6 +28,8 @@ export function Topbar({
   const router = useRouter();
   const perfil = useFinancas((s) => s.perfil);
   const alternarOcultar = useFinancas((s) => s.alternarOcultarValores);
+  const limparSessao = useFinancas((s) => s.limparSessao);
+  const { sair } = useAuth();
   const [busca, setBusca] = React.useState('');
   const campoBusca = React.useRef<HTMLInputElement>(null);
 
@@ -129,9 +131,12 @@ export function Topbar({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               destrutivo
-              onSelect={() => {
-                encerrarSessao();
-                router.push('/login');
+              onSelect={async () => {
+                // Encerra a sessão no Supabase e limpa o cache local, para que a
+                // próxima conta a entrar neste navegador não veja dados alheios.
+                await sair();
+                limparSessao();
+                router.replace('/login');
               }}
             >
               <LogOut />

@@ -3,12 +3,15 @@ import * as React from 'react';
 import { ThemeProvider as NextThemes } from 'next-themes';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from 'sonner';
+import { ProvedorAuth } from './auth';
 
 export function Provedores({ children }: { children: React.ReactNode }) {
   return (
     <NextThemes attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <TooltipProvider delayDuration={250}>
-        {children}
+        {/* Envolve tudo: a tela de login também precisa da sessão para saber
+            se deve redirecionar quem já está autenticado. */}
+        <ProvedorAuth>{children}</ProvedorAuth>
         <Toaster
           position="bottom-right"
           toastOptions={{

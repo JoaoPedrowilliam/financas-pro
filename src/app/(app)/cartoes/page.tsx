@@ -22,6 +22,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useFinancas } from '@/store/use-financas';
+import { useAcao } from '@/lib/acoes';
 import { faturaDoCartao, limiteUsado } from '@/lib/financas';
 import { dataCurta, distanciaEmDias, moeda } from '@/lib/format';
 import { competenciaDe, competencia, mesSeguinte, somar } from '@/lib/utils';
@@ -30,6 +31,7 @@ import type { Assinatura, Cartao } from '@/types';
 export default function PaginaCartoes() {
   const estado = useFinancas();
   const { cartoes, transacoes, assinaturas, categorias, removeCartao, removeAssinatura, updateAssinatura } = estado;
+  const { executar } = useAcao();
 
   const hoje = new Date();
   const [comp, setComp] = React.useState(() => competenciaDe(hoje.getFullYear(), hoje.getMonth() + 1));
@@ -321,10 +323,11 @@ export default function PaginaCartoes() {
                           <Valor valor={a.valor} className="shrink-0 text-[14px] font-semibold" />
                           <Switch
                             checked={a.ativa}
-                            onCheckedChange={(v) => {
-                              updateAssinatura(a.id, { ativa: v });
-                              toast.success(v ? `${a.nome} reativada` : `${a.nome} pausada`);
-                            }}
+                            onCheckedChange={(v) =>
+                              executar(() => updateAssinatura(a.id, { ativa: v }), {
+                                sucesso: v ? `${a.nome} reativada` : `${a.nome} pausada`,
+                              })
+                            }
                             aria-label={`${a.ativa ? 'Pausar' : 'Reativar'} ${a.nome}`}
                           />
                           <DropdownMenu>
@@ -392,8 +395,10 @@ export default function PaginaCartoes() {
         rotuloConfirmar="Excluir cartão"
         onConfirmar={() => {
           if (excluirCartao) {
-            removeCartao(excluirCartao.id);
-            toast.success('Cartão excluído');
+            executar(() => removeCartao(excluirCartao.id), {
+              sucesso: 'Cartão excluído',
+              aoFalhar: 'Não foi possível excluir o cartão',
+            });
           }
         }}
       />
@@ -405,8 +410,10 @@ export default function PaginaCartoes() {
         rotuloConfirmar="Excluir assinatura"
         onConfirmar={() => {
           if (excluirAssinatura) {
-            removeAssinatura(excluirAssinatura.id);
-            toast.success('Assinatura excluída');
+            executar(() => removeAssinatura(excluirAssinatura.id), {
+              sucesso: 'Assinatura excluída',
+              aoFalhar: 'Não foi possível excluir a assinatura',
+            });
           }
         }}
       />

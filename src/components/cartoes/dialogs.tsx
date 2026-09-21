@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectVa
 import { CampoValor } from '@/components/shared/campo-valor';
 import { SeletorBanco } from '@/components/shared/seletor-banco';
 import { useFinancas } from '@/store/use-financas';
+import { useAcao } from '@/lib/acoes';
 import { BANCO_GENERICO, resolverBanco } from '@/lib/bancos';
 import { cn } from '@/lib/utils';
 import type { Assinatura, Cartao, Periodicidade, TipoCartao } from '@/types';
@@ -38,6 +39,7 @@ export function DialogCartao({
   cartao?: Cartao | null;
 }) {
   const { contas, addCartao, updateCartao } = useFinancas();
+  const { executando, executar } = useAcao();
   const [form, setForm] = React.useState({
     nome: '',
     bandeira: 'Mastercard',
@@ -90,7 +92,7 @@ export function DialogCartao({
 
   const credito = form.tipo !== 'debito';
 
-  const salvar = () => {
+  const salvar = async () => {
     const e: Record<string, string> = {};
     if (!form.nome.trim()) e.nome = 'Dê um apelido ao cartão.';
     if (credito && form.limite <= 0) e.limite = 'Informe o limite para acompanhar o quanto está comprometido.';
@@ -110,14 +112,14 @@ export function DialogCartao({
       contaPagamentoId: form.contaPagamentoId || null,
     };
 
-    if (cartao) {
-      updateCartao(cartao.id, dados);
-      toast.success('Cartão atualizado');
-    } else {
-      addCartao(dados);
-      toast.success('Cartão cadastrado');
-    }
-    onAbertoChange(false);
+    const ok = await executar(
+      () => (cartao ? updateCartao(cartao.id, dados) : addCartao(dados)),
+      {
+        sucesso: cartao ? 'Cartão atualizado' : 'Cartão cadastrado',
+        aoFalhar: 'O cartão não foi salvo',
+      },
+    );
+    if (ok) onAbertoChange(false);
   };
 
   return (
@@ -306,6 +308,7 @@ export function DialogAssinatura({
   assinatura?: Assinatura | null;
 }) {
   const { cartoes, categorias, addAssinatura, updateAssinatura } = useFinancas();
+  const { executando, executar } = useAcao();
   const categoriasDespesa = React.useMemo(
     () => categorias.filter((c) => c.tipo === 'despesa' && !c.arquivada),
     [categorias],
@@ -350,7 +353,7 @@ export function DialogAssinatura({
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.nome.trim()) return setErro('Dê um nome à assinatura.');
     if (form.valor <= 0) return setErro('Informe o valor cobrado.');
 
@@ -364,16 +367,15 @@ export function DialogAssinatura({
       ativa: form.ativa,
     };
 
-    if (assinatura) {
-      updateAssinatura(assinatura.id, dados);
-      toast.success('Assinatura atualizada');
-    } else {
-      addAssinatura(dados);
-      toast.success('Assinatura cadastrada', {
-        description: 'A cobrança será lançada automaticamente todo mês.',
-      });
-    }
-    onAbertoChange(false);
+    const ok = await executar(
+      () => (assinatura ? updateAssinatura(assinatura.id, dados) : addAssinatura(dados)),
+      {
+        sucesso: assinatura ? 'Assinatura atualizada' : 'Assinatura cadastrada',
+        descricao: assinatura ? undefined : 'A cobrança será lançada automaticamente todo mês.',
+        aoFalhar: 'A assinatura não foi salva',
+      },
+    );
+    if (ok) onAbertoChange(false);
   };
 
   return (

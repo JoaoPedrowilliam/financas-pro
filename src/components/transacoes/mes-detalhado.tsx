@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { EstadoVazio } from '@/components/ui/estado-vazio';
 import { useFinancas } from '@/store/use-financas';
+import { useAcao } from '@/lib/acoes';
 import { gastoPorCategoria, resumoDoMes, transacoesDoMes } from '@/lib/financas';
 import { exportarTransacoesCSV } from '@/lib/exportar';
 import { moeda, percentual } from '@/lib/format';
@@ -41,6 +42,7 @@ function Conteudo({ mes }: { mes: number }) {
 
   const { transacoes, categorias, contas, cartoes, perfil, removeTransacao, removeGrupoParcelas } =
     useFinancas();
+  const { executar } = useAcao();
 
   const [editando, setEditando] = React.useState<Transacao | null>(null);
   const [dialogAberto, setDialogAberto] = React.useState(false);
@@ -258,11 +260,15 @@ function Conteudo({ mes }: { mes: number }) {
         onConfirmar={() => {
           if (!excluindo) return;
           if (excluindo.parcela) {
-            removeGrupoParcelas(excluindo.parcela.grupoId);
-            toast.success('Parcelas excluídas');
+            executar(() => removeGrupoParcelas(excluindo.parcela!.grupoId), {
+              sucesso: 'Parcelas excluídas',
+              aoFalhar: 'Não foi possível excluir',
+            });
           } else {
-            removeTransacao(excluindo.id);
-            toast.success('Lançamento excluído');
+            executar(() => removeTransacao(excluindo.id), {
+              sucesso: 'Lançamento excluído',
+              aoFalhar: 'Não foi possível excluir',
+            });
           }
         }}
       />

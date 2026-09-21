@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CampoValor } from '@/components/shared/campo-valor';
 import { useFinancas } from '@/store/use-financas';
+import { useAcao } from '@/lib/acoes';
 import { moeda } from '@/lib/format';
 import { hojeISO } from '@/lib/utils';
 import type { Divida } from '@/types';
@@ -60,6 +61,7 @@ export function DialogDivida({
   divida?: Divida | null;
 }) {
   const { addDivida, updateDivida } = useFinancas();
+  const { executando, executar } = useAcao();
   const [form, setForm] = React.useState<Rascunho>(VAZIO);
   const [erros, setErros] = React.useState<Record<string, string>>({});
 
@@ -89,7 +91,7 @@ export function DialogDivida({
 
   const set = <K extends keyof Rascunho>(k: K, v: Rascunho[K]) => setForm((f) => ({ ...f, [k]: v }));
 
-  const salvar = () => {
+  const salvar = async () => {
     const e: Record<string, string> = {};
     if (!form.credor.trim()) e.credor = 'Informe para quem você deve.';
     if (form.saldoAtual <= 0) e.saldoAtual = 'O saldo devedor precisa ser maior que zero.';
@@ -116,16 +118,17 @@ export function DialogDivida({
       status: form.status,
     };
 
-    if (divida) {
-      updateDivida(divida.id, dados);
-      toast.success('Dívida atualizada');
-    } else {
-      addDivida({ ...dados, pagamentos: [] });
-      toast.success('Dívida cadastrada', {
-        description: 'Ela já entra no plano de quitação e no cálculo do seu patrimônio.',
-      });
-    }
-    onAbertoChange(false);
+    const ok = await executar(
+      () => (divida ? updateDivida(divida.id, dados) : addDivida({ ...dados, pagamentos: [] })),
+      {
+        sucesso: divida ? 'Dívida atualizada' : 'Dívida cadastrada',
+        descricao: divida
+          ? undefined
+          : 'Ela já entra no plano de quitação e no cálculo do seu patrimônio.',
+        aoFalhar: 'A dívida não foi salva',
+      },
+    );
+    if (ok) onAbertoChange(false);
   };
 
   const economia = form.temAcordo && form.valorAcordo > 0 ? form.saldoAtual - form.valorAcordo : 0;

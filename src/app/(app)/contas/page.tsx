@@ -23,6 +23,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useFinancas } from '@/store/use-financas';
+import { useAcao } from '@/lib/acoes';
 import { mediaDaVariavel, saldoDaConta, saldoTotal } from '@/lib/financas';
 import { lembretesDoMes } from '@/lib/insights';
 import { dataCurta, moeda, percentual } from '@/lib/format';
@@ -35,6 +36,8 @@ export default function PaginaContas() {
     contas, transacoes, recorrencias, categorias, perfil,
     removeConta, removeRecorrencia, updateRecorrencia, alternarStatus, gerarLancamentosDoMes,
   } = estado;
+
+  const { executando, executar } = useAcao();
 
   const hoje = new Date();
   const [comp, setComp] = React.useState(() => competenciaDe(hoje.getFullYear(), hoje.getMonth() + 1));
@@ -69,13 +72,22 @@ export default function PaginaContas() {
     setRecDialog(true);
   };
 
-  const gerar = () => {
-    const criados = gerarLancamentosDoMes(comp);
-    toast.success(
-      criados > 0
-        ? `${criados} ${criados === 1 ? 'lançamento gerado' : 'lançamentos gerados'}`
-        : 'Este mês já estava gerado',
-      { description: criados > 0 ? 'Eles entram como pendentes até você confirmar o pagamento.' : undefined },
+  const gerar = async () => {
+    // A contagem só é conhecida depois que o banco responde; o aviso espera.
+    await executar(
+      async () => {
+        const criados = await gerarLancamentosDoMes(comp);
+        toast.success(
+          criados > 0
+            ? `${criados} ${criados === 1 ? 'lançamento gerado' : 'lançamentos gerados'}`
+            : 'Este mês já estava gerado',
+          {
+            description:
+              criados > 0 ? 'Eles entram como pendentes até você confirmar o pagamento.' : undefined,
+          },
+        );
+      },
+      { aoFalhar: 'Não foi possível gerar os lançamentos' },
     );
   };
 
@@ -87,9 +99,9 @@ export default function PaginaContas() {
         acoes={
           <>
             <SeletorCompetencia valor={comp} onChange={setComp} />
-            <Button variant="contorno" onClick={gerar}>
-              <RefreshCw />
-              Gerar lançamentos
+            <Button variant="contorno" onClick={gerar} disabled={executando}>
+              <RefreshCw className={executando ? 'animate-spin' : undefined} />
+              {executando ? 'Gerando…' : 'Gerar lançamentos'}
             </Button>
           </>
         }
@@ -142,7 +154,12 @@ export default function PaginaContas() {
                         className="flex flex-wrap items-center gap-3 rounded-control border border-line p-3"
                       >
                         <button
-                          onClick={() => lancamento && alternarStatus(lancamento.id)}
+                          onClick={() =>
+                            lancamento &&
+                            executar(() => alternarStatus(lancamento.id), {
+                              aoFalhar: 'Não foi possível mudar o status',
+                            })
+                          }
                           disabled={!lancamento}
                           aria-label={`Marcar ${recorrencia.nome} como ${pago ? 'pendente' : 'pago'}`}
                           className={`grid size-7 shrink-0 place-items-center rounded-full border transition-colors ${
@@ -221,10 +238,11 @@ export default function PaginaContas() {
                         setRecDialog(true);
                       }}
                       onExcluir={() => setExcluirRec(rec)}
-                      onAlternar={() => {
-                        updateRecorrencia(rec.id, { ativa: !rec.ativa });
-                        toast.success(rec.ativa ? `${rec.nome} pausada` : `${rec.nome} reativada`);
-                      }}
+                      onAlternar={() =>
+                        executar(() => updateRecorrencia(rec.id, { ativa: !rec.ativa }), {
+                          sucesso: rec.ativa ? `${rec.nome} pausada` : `${rec.nome} reativada`,
+                        })
+                      }
                     />
                   ))}
                 </ul>
@@ -472,8 +490,10 @@ export default function PaginaContas() {
         rotuloConfirmar="Excluir conta"
         onConfirmar={() => {
           if (excluirConta) {
-            removeConta(excluirConta.id);
-            toast.success('Conta excluída');
+            executar(() => removeConta(excluirConta.id), {
+              sucesso: 'Conta excluída',
+              aoFalhar: 'Não foi possível excluir a conta',
+            });
           }
         }}
       />
@@ -485,8 +505,10 @@ export default function PaginaContas() {
         rotuloConfirmar="Excluir"
         onConfirmar={() => {
           if (excluirRec) {
-            removeRecorrencia(excluirRec.id);
-            toast.success('Conta recorrente excluída');
+            executar(() => removeRecorrencia(excluirRec.id), {
+              sucesso: 'Conta recorrente excluída',
+              aoFalhar: 'Não foi possível excluir',
+            });
           }
         }}
       />

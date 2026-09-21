@@ -22,6 +22,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useFinancas } from '@/store/use-financas';
+import { useAcao } from '@/lib/acoes';
 import { progressoMeta } from '@/lib/financas';
 import { dataLonga, moeda } from '@/lib/format';
 import { cn, hojeISO, somar } from '@/lib/utils';
@@ -29,6 +30,7 @@ import type { Meta } from '@/types';
 
 export default function PaginaMetas() {
   const { metas, removeMeta, aportarNaMeta } = useFinancas();
+  const { executar } = useAcao();
 
   const [dialogAberto, setDialogAberto] = React.useState(false);
   const [editando, setEditando] = React.useState<Meta | null>(null);
@@ -194,20 +196,16 @@ export default function PaginaMetas() {
       <DialogAporte
         meta={aportando}
         onFechar={() => setAportando(null)}
-        onAportar={(valor) => {
+        onAportar={async (valor) => {
           if (!aportando) return;
-          aportarNaMeta(aportando.id, valor);
           const novo = aportando.valorAtual + valor;
-          toast.success(
-            novo >= aportando.valorAlvo ? `Meta "${aportando.nome}" concluída` : 'Aporte registrado',
-            {
-              description:
-                novo >= aportando.valorAlvo
-                  ? 'Você chegou lá.'
-                  : `Faltam ${moeda(aportando.valorAlvo - novo)}.`,
-            },
-          );
-          setAportando(null);
+          const concluiu = novo >= aportando.valorAlvo;
+          const ok = await executar(() => aportarNaMeta(aportando.id, valor), {
+            sucesso: concluiu ? `Meta "${aportando.nome}" concluída` : 'Aporte registrado',
+            descricao: concluiu ? 'Você chegou lá.' : `Faltam ${moeda(aportando.valorAlvo - novo)}.`,
+            aoFalhar: 'O aporte não foi registrado',
+          });
+          if (ok) setAportando(null);
         }}
       />
 
@@ -219,8 +217,10 @@ export default function PaginaMetas() {
         rotuloConfirmar="Excluir meta"
         onConfirmar={() => {
           if (excluindo) {
-            removeMeta(excluindo.id);
-            toast.success('Meta excluída');
+            executar(() => removeMeta(excluindo.id), {
+              sucesso: 'Meta excluída',
+              aoFalhar: 'Não foi possível excluir a meta',
+            });
           }
         }}
       />
@@ -248,6 +248,7 @@ function DialogMeta({
   meta?: Meta | null;
 }) {
   const { addMeta, updateMeta } = useFinancas();
+  const { executando, executar } = useAcao();
   const [form, setForm] = React.useState({
     nome: '',
     descricao: '',
@@ -285,7 +286,7 @@ function DialogMeta({
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.nome.trim()) return setErro('Dê um nome à meta.');
     if (form.valorAlvo <= 0) return setErro('Informe quanto você quer juntar.');
     if (!form.prazo) return setErro('Escolha uma data-alvo.');
@@ -301,14 +302,14 @@ function DialogMeta({
       concluida: form.valorAtual >= form.valorAlvo,
     };
 
-    if (meta) {
-      updateMeta(meta.id, dados);
-      toast.success('Meta atualizada');
-    } else {
-      addMeta(dados);
-      toast.success('Meta criada');
-    }
-    onAbertoChange(false);
+    const ok = await executar(
+      () => (meta ? updateMeta(meta.id, dados) : addMeta(dados)),
+      {
+        sucesso: meta ? 'Meta atualizada' : 'Meta criada',
+        aoFalhar: 'A meta não foi salva',
+      },
+    );
+    if (ok) onAbertoChange(false);
   };
 
   const previa =

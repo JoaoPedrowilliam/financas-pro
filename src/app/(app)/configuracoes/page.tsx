@@ -25,13 +25,18 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useFinancas } from '@/store/use-financas';
 import { exportarBackup, lerBackup } from '@/lib/exportar';
+import { useAcao } from '@/lib/acoes';
 import { moeda } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { Categoria } from '@/types';
 
 export default function PaginaConfiguracoes() {
   const estado = useFinancas();
-  const { perfil, categorias, transacoes, updatePerfil, importar, restaurarDemo, limparTudo, removeCategoria } = estado;
+  const {
+    perfil, categorias, transacoes, updatePerfil, restaurarDemo, limparTudo,
+    removeCategoria, carregarDoServidor,
+  } = estado;
+  const { executando, executar } = useAcao();
 
   const [nome, setNome] = React.useState(perfil.nome);
   const [email, setEmail] = React.useState(perfil.email);
@@ -47,6 +52,15 @@ export default function PaginaConfiguracoes() {
     setEmail(perfil.email);
   }, [perfil.nome, perfil.email]);
 
+  /**
+   * Importa um backup para a conta autenticada.
+   *
+   * A validação do arquivo continua sendo a de lerBackup(). O que mudou é o
+   * destino: em vez de sobrescrever o estado em memória, os registros são
+   * gravados no banco. Por isso a conta é esvaziada antes — importar por cima
+   * de dados existentes duplicaria tudo, já que os ids do arquivo são os
+   * mesmos que já estariam lá.
+   */
   const importarArquivo = async (arquivo: File | undefined) => {
     if (!arquivo) return;
     const resultado = lerBackup(await arquivo.text());
@@ -54,10 +68,25 @@ export default function PaginaConfiguracoes() {
       toast.error('Backup não importado', { description: resultado.erro });
       return;
     }
-    importar(resultado.dados);
-    toast.success('Backup restaurado', {
-      description: `${resultado.dados.transacoes.length} lançamentos carregados.`,
-    });
+    const dados = resultado.dados;
+
+    await executar(
+      async () => {
+        const { apagarTudoDoUsuario } = await import('@/services/limpeza');
+        const { importarBackup } = await import('@/services/migracao');
+        await apagarTudoDoUsuario();
+        const envio = await importarBackup(dados);
+        if (!envio.ok) {
+          throw new Error(`Falhou em "${envio.etapa}": ${envio.erro}`);
+        }
+        await carregarDoServidor();
+      },
+      {
+        sucesso: 'Backup restaurado',
+        descricao: `${dados.transacoes.length} lançamentos carregados.`,
+        aoFalhar: 'Backup não importado',
+      },
+    );
   };
 
   const raizes = categorias.filter((c) => !c.paiId);
@@ -95,7 +124,7 @@ export default function PaginaConfiguracoes() {
                   id="perfil-nome"
                   value={nome}
                   onChange={(e) => setNome(e.target.value)}
-                  onBlur={() => updatePerfil({ nome: nome.trim() })}
+                  onBlur={() => executar(() => updatePerfil({ nome: nome.trim() }))}
                   className="mt-1.5"
                 />
               </div>
@@ -107,7 +136,7 @@ export default function PaginaConfiguracoes() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  onBlur={() => updatePerfil({ email: email.trim() })}
+                  onBlur={() => executar(() => updatePerfil({ email: email.trim() }))}
                   className="mt-1.5"
                 />
               </div>
@@ -116,7 +145,7 @@ export default function PaginaConfiguracoes() {
                 <Label htmlFor="perfil-moeda">Moeda</Label>
                 <Select
                   value={perfil.moeda}
-                  onValueChange={(v) => updatePerfil({ moeda: v as typeof perfil.moeda })}
+                  onValueChange={(v) => executar(() => updatePerfil({ moeda: v as typeof perfil.moeda }))}
                 >
                   <SelectTrigger id="perfil-moeda" className="mt-1.5">
                     <SelectValue />
@@ -141,7 +170,11 @@ export default function PaginaConfiguracoes() {
                   max={28}
                   value={perfil.inicioMesFinanceiro}
                   onChange={(e) =>
-                    updatePerfil({ inicioMesFinanceiro: Math.min(28, Math.max(1, Number(e.target.value))) })
+                    executar(() =>
+                      updatePerfil({
+                        inicioMesFinanceiro: Math.min(28, Math.max(1, Number(e.target.value))),
+                      }),
+                    )
                   }
                   className="cifra mt-1.5 text-right"
                 />
@@ -162,7 +195,7 @@ export default function PaginaConfiguracoes() {
                 <Switch
                   id="ocultar"
                   checked={perfil.ocultarValores}
-                  onCheckedChange={(v) => updatePerfil({ ocultarValores: v })}
+                  onCheckedChange={(v) => executar(() => updatePerfil({ ocultarValores: v }))}
                 />
               </div>
             </CardContent>
@@ -427,8 +460,10 @@ export default function PaginaConfiguracoes() {
         rotuloConfirmar="Excluir categoria"
         onConfirmar={() => {
           if (excluirCat) {
-            removeCategoria(excluirCat.id);
-            toast.success('Categoria excluída');
+            executar(() => removeCategoria(excluirCat.id), {
+              sucesso: 'Categoria excluída',
+              aoFalhar: 'Não foi possível excluir a categoria',
+            });
           }
         }}
       />
@@ -439,22 +474,26 @@ export default function PaginaConfiguracoes() {
         titulo="Carregar os dados de exemplo?"
         descricao="Tudo que está aqui hoje será substituído pela carteira fictícia. Exporte um backup antes se quiser manter seus dados."
         rotuloConfirmar="Carregar exemplo"
-        onConfirmar={() => {
-          restaurarDemo();
-          toast.success('Dados de exemplo carregados');
-        }}
+        onConfirmar={() =>
+          executar(restaurarDemo, {
+            sucesso: 'Dados de exemplo carregados',
+            aoFalhar: 'Não foi possível carregar a demonstração',
+          })
+        }
       />
 
       <Confirmar
         aberto={confirmarLimpeza}
         onAbertoChange={setConfirmarLimpeza}
         titulo="Apagar todos os dados?"
-        descricao="Lançamentos, contas, cartões, categorias, investimentos, dívidas e metas serão removidos deste dispositivo. Isso não pode ser desfeito."
+        descricao="Lançamentos, contas, cartões, categorias, investimentos, dívidas e metas serão removidos da sua conta, em todos os dispositivos. Isso não pode ser desfeito."
         rotuloConfirmar="Apagar tudo"
-        onConfirmar={() => {
-          limparTudo();
-          toast.success('Dados apagados');
-        }}
+        onConfirmar={() =>
+          executar(limparTudo, {
+            sucesso: 'Dados apagados',
+            aoFalhar: 'Não foi possível apagar os dados',
+          })
+        }
       />
     </div>
   );
@@ -522,6 +561,7 @@ function DialogCategoria({
   categoria?: Categoria | null;
 }) {
   const { categorias, addCategoria, updateCategoria } = useFinancas();
+  const { executando, executar } = useAcao();
   const [form, setForm] = React.useState({
     nome: '',
     tipo: 'despesa' as Categoria['tipo'],
@@ -561,7 +601,7 @@ function DialogCategoria({
     (c) => !c.paiId && c.tipo === form.tipo && c.id !== categoria?.id,
   );
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.nome.trim()) return setErro('Dê um nome à categoria.');
 
     const dados = {
@@ -574,14 +614,14 @@ function DialogCategoria({
       arquivada: false,
     };
 
-    if (categoria) {
-      updateCategoria(categoria.id, dados);
-      toast.success('Categoria atualizada');
-    } else {
-      addCategoria(dados);
-      toast.success('Categoria criada');
-    }
-    onAbertoChange(false);
+    const ok = await executar(
+      () => (categoria ? updateCategoria(categoria.id, dados) : addCategoria(dados)),
+      {
+        sucesso: categoria ? 'Categoria atualizada' : 'Categoria criada',
+        aoFalhar: 'A categoria não foi salva',
+      },
+    );
+    if (ok) onAbertoChange(false);
   };
 
   return (

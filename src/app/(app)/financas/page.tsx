@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { EstadoVazio } from '@/components/ui/estado-vazio';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useFinancas } from '@/store/use-financas';
+import { useAcao } from '@/lib/acoes';
 import { exportarTransacoesCSV } from '@/lib/exportar';
 import { MESES_CURTOS, SLUGS_MES, competenciaDe, somar } from '@/lib/utils';
 import type { StatusTransacao, TipoTransacao, Transacao } from '@/types';
@@ -35,6 +36,7 @@ export default function PaginaFinancas() {
 function ConteudoFinancas() {
   const parametros = useSearchParams();
   const { transacoes, categorias, contas, cartoes, removeTransacao, removeGrupoParcelas } = useFinancas();
+  const { executar } = useAcao();
 
   const [busca, setBusca] = React.useState(parametros.get('busca') ?? '');
   const [tipo, setTipo] = React.useState<TipoTransacao | 'todos'>('todos');
@@ -318,13 +320,15 @@ function ConteudoFinancas() {
         rotuloConfirmar={excluindo?.parcela ? 'Excluir todas' : 'Excluir'}
         onConfirmar={() => {
           if (!excluindo) return;
-          if (excluindo.parcela) {
-            removeGrupoParcelas(excluindo.parcela.grupoId);
-            toast.success('Parcelas excluídas');
-          } else {
-            removeTransacao(excluindo.id);
-            toast.success('Lançamento excluído');
-          }
+          const parcela = excluindo.parcela;
+          executar(
+            () =>
+              parcela ? removeGrupoParcelas(parcela.grupoId) : removeTransacao(excluindo.id),
+            {
+              sucesso: parcela ? 'Parcelas excluídas' : 'Lançamento excluído',
+              aoFalhar: 'Não foi possível excluir',
+            },
+          );
         }}
       />
     </div>

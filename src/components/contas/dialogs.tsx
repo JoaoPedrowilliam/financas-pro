@@ -14,6 +14,7 @@ import { CampoValor } from '@/components/shared/campo-valor';
 import { SeletorBanco } from '@/components/shared/seletor-banco';
 import { CORES_CARTAO } from '@/components/cartoes/dialogs';
 import { useFinancas } from '@/store/use-financas';
+import { useAcao } from '@/lib/acoes';
 import { BANCO_GENERICO, bancoPorId, resolverBanco } from '@/lib/bancos';
 import { cn, hojeISO } from '@/lib/utils';
 import type { Conta, Periodicidade, Recorrencia, TipoConta } from '@/types';
@@ -28,6 +29,7 @@ export function DialogConta({
   conta?: Conta | null;
 }) {
   const { addConta, updateConta } = useFinancas();
+  const { executando, executar } = useAcao();
   const [form, setForm] = React.useState({
     nome: '',
     bancoId: BANCO_GENERICO.id,
@@ -72,7 +74,7 @@ export function DialogConta({
   const bancoEscolhido = bancoPorId(form.bancoId);
   const outroBanco = !bancoEscolhido || bancoEscolhido.id === BANCO_GENERICO.id;
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.nome.trim()) return setErro('Dê um nome à conta.');
     // `instituicao` segue sendo a fonte legível: com banco do catálogo ela recebe
     // o nome oficial; em "Outro", o que a pessoa digitou.
@@ -86,14 +88,14 @@ export function DialogConta({
       cor: form.cor,
       incluirNoPatrimonio: form.incluirNoPatrimonio,
     };
-    if (conta) {
-      updateConta(conta.id, dados);
-      toast.success('Conta atualizada');
-    } else {
-      addConta(dados);
-      toast.success('Conta cadastrada');
-    }
-    onAbertoChange(false);
+    const ok = await executar(
+      () => (conta ? updateConta(conta.id, dados) : addConta(dados)),
+      {
+        sucesso: conta ? 'Conta atualizada' : 'Conta cadastrada',
+        aoFalhar: 'A conta não foi salva',
+      },
+    );
+    if (ok) onAbertoChange(false);
   };
 
   return (
@@ -238,6 +240,7 @@ export function DialogRecorrencia({
   naturezaInicial?: Recorrencia['natureza'];
 }) {
   const { contas, categorias, addRecorrencia, updateRecorrencia } = useFinancas();
+  const { executando, executar } = useAcao();
   const [form, setForm] = React.useState({
     nome: '',
     natureza: naturezaInicial,
@@ -292,7 +295,7 @@ export function DialogRecorrencia({
     [categorias, form.tipo],
   );
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.nome.trim()) return setErro('Dê um nome à conta recorrente.');
     if (form.valorPrevisto <= 0) return setErro('Informe o valor previsto.');
 
@@ -310,16 +313,15 @@ export function DialogRecorrencia({
       ativa: form.ativa,
     };
 
-    if (recorrencia) {
-      updateRecorrencia(recorrencia.id, dados);
-      toast.success('Conta recorrente atualizada');
-    } else {
-      addRecorrencia(dados);
-      toast.success('Conta recorrente criada', {
-        description: 'O lançamento do mês é gerado automaticamente.',
-      });
-    }
-    onAbertoChange(false);
+    const ok = await executar(
+      () => (recorrencia ? updateRecorrencia(recorrencia.id, dados) : addRecorrencia(dados)),
+      {
+        sucesso: recorrencia ? 'Conta recorrente atualizada' : 'Conta recorrente criada',
+        descricao: recorrencia ? undefined : 'O lançamento do mês é gerado automaticamente.',
+        aoFalhar: 'A conta recorrente não foi salva',
+      },
+    );
+    if (ok) onAbertoChange(false);
   };
 
   return (

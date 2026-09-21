@@ -1,364 +1,456 @@
 'use client';
 
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
 import type {
   Ativo, Assinatura, Cartao, Categoria, Conta, Divida, EstadoFinanceiro,
   Meta, PagamentoDivida, Perfil, Recorrencia, Transacao,
 } from '@/types';
-import { ESTADO_VAZIO, categoriasPadrao, gerarSeed } from './seed';
+import { ESTADO_VAZIO } from './seed';
 import { competenciaDe, diaSeguro, hojeISO, uid } from '@/lib/utils';
-import { gerarParcelas, recorrenciaVenceNoMes } from '@/lib/financas';
+import { recorrenciaVenceNoMes } from '@/lib/financas';
+import { carregarEstado, garantirCategorias } from '@/services/carregar';
+import { servicoPerfil } from '@/services/perfil';
+import { servicoCategorias } from '@/services/categorias';
+import { servicoContas } from '@/services/contas';
+import { servicoCartoes } from '@/services/cartoes';
+import { servicoRecorrencias } from '@/services/recorrencias';
+import { servicoAssinaturas } from '@/services/assinaturas';
+import { servicoTransacoes } from '@/services/transacoes';
+import { servicoAtivos } from '@/services/ativos';
+import { servicoMetas } from '@/services/metas';
+import { servicoDividas } from '@/services/dividas';
+import {
+  assinaturaParaLinha, ativoParaLinha, cartaoParaLinha, categoriaParaLinha,
+  contaParaLinha, dividaParaLinha, metaParaLinha, recorrenciaParaLinha,
+  transacaoParaLinha,
+} from '@/lib/supabase/mapear';
 
-export const CHAVE_PERSISTENCIA = 'financas-pro:v1';
+/**
+ * Estado da aplicação.
+ *
+ * O que mudou nesta versão: o Supabase passou a ser a fonte persistente, e este
+ * store virou cache de interface. O middleware `persist` foi removido —
+ * mantê-lo faria o localStorage competir com o banco pela verdade, e numa
+ * divergência ninguém saberia qual dos dois está certo.
+ *
+ * A chave antiga (`financas-pro:v1`) NÃO é apagada. Ela continua no navegador
+ * como cópia dos dados anteriores até a migração confirmar, e é de onde
+ * services/migracao.ts lê.
+ *
+ * Toda ação de escrita fala com o banco primeiro e só então atualiza o estado
+ * local. É mais lento que otimismo, e é de propósito: nenhuma tela pode dizer
+ * "salvo" antes de estar salvo.
+ */
+
+// Reexportada para não quebrar quem já importava daqui (lib/exportar.ts).
+export { CHAVE_PERSISTENCIA } from './chaves';
 
 type Novo<T> = Omit<T, 'id' | 'criadoEm'>;
 
 interface Acoes {
+  /* ciclo de vida */
+  carregarDoServidor: () => Promise<void>;
+  limparSessao: () => void;
+
   /* transações */
-  addTransacao: (dados: Novo<Transacao> & { parcelas?: number }) => void;
-  updateTransacao: (id: string, mudancas: Partial<Transacao>) => void;
-  removeTransacao: (id: string) => void;
-  /** Remove todas as parcelas de uma compra parcelada. */
-  removeGrupoParcelas: (grupoId: string) => void;
-  alternarStatus: (id: string) => void;
+  addTransacao: (dados: Novo<Transacao> & { parcelas?: number }) => Promise<void>;
+  updateTransacao: (id: string, mudancas: Partial<Transacao>) => Promise<void>;
+  removeTransacao: (id: string) => Promise<void>;
+  removeGrupoParcelas: (grupoId: string) => Promise<void>;
+  alternarStatus: (id: string) => Promise<void>;
 
   /* cadastros */
-  addConta: (dados: Novo<Conta>) => void;
-  updateConta: (id: string, mudancas: Partial<Conta>) => void;
-  removeConta: (id: string) => void;
+  addConta: (dados: Novo<Conta>) => Promise<void>;
+  updateConta: (id: string, mudancas: Partial<Conta>) => Promise<void>;
+  removeConta: (id: string) => Promise<void>;
 
-  addCartao: (dados: Novo<Cartao>) => void;
-  updateCartao: (id: string, mudancas: Partial<Cartao>) => void;
-  removeCartao: (id: string) => void;
+  addCartao: (dados: Novo<Cartao>) => Promise<void>;
+  updateCartao: (id: string, mudancas: Partial<Cartao>) => Promise<void>;
+  removeCartao: (id: string) => Promise<void>;
 
-  addCategoria: (dados: Omit<Categoria, 'id'>) => void;
-  updateCategoria: (id: string, mudancas: Partial<Categoria>) => void;
-  removeCategoria: (id: string) => void;
+  addCategoria: (dados: Omit<Categoria, 'id'>) => Promise<void>;
+  updateCategoria: (id: string, mudancas: Partial<Categoria>) => Promise<void>;
+  removeCategoria: (id: string) => Promise<void>;
 
-  addRecorrencia: (dados: Novo<Recorrencia>) => void;
-  updateRecorrencia: (id: string, mudancas: Partial<Recorrencia>) => void;
-  removeRecorrencia: (id: string) => void;
-  /** Cria os lançamentos previstos da competência informada. Idempotente. */
-  gerarLancamentosDoMes: (comp: string) => number;
+  addRecorrencia: (dados: Novo<Recorrencia>) => Promise<void>;
+  updateRecorrencia: (id: string, mudancas: Partial<Recorrencia>) => Promise<void>;
+  removeRecorrencia: (id: string) => Promise<void>;
+  gerarLancamentosDoMes: (comp: string) => Promise<number>;
 
-  addAssinatura: (dados: Novo<Assinatura>) => void;
-  updateAssinatura: (id: string, mudancas: Partial<Assinatura>) => void;
-  removeAssinatura: (id: string) => void;
+  addAssinatura: (dados: Novo<Assinatura>) => Promise<void>;
+  updateAssinatura: (id: string, mudancas: Partial<Assinatura>) => Promise<void>;
+  removeAssinatura: (id: string) => Promise<void>;
 
-  addAtivo: (dados: Novo<Ativo>) => void;
-  updateAtivo: (id: string, mudancas: Partial<Ativo>) => void;
-  removeAtivo: (id: string) => void;
-  aplicarCotacoes: (cotacoes: Record<string, { preco: number; dividendYield?: number }>) => void;
+  addAtivo: (dados: Novo<Ativo>) => Promise<void>;
+  updateAtivo: (id: string, mudancas: Partial<Ativo>) => Promise<void>;
+  removeAtivo: (id: string) => Promise<void>;
+  aplicarCotacoes: (cotacoes: Record<string, { preco: number; dividendYield?: number }>) => Promise<void>;
 
-  addMeta: (dados: Novo<Meta>) => void;
-  updateMeta: (id: string, mudancas: Partial<Meta>) => void;
-  removeMeta: (id: string) => void;
-  aportarNaMeta: (id: string, valor: number) => void;
+  addMeta: (dados: Novo<Meta>) => Promise<void>;
+  updateMeta: (id: string, mudancas: Partial<Meta>) => Promise<void>;
+  removeMeta: (id: string) => Promise<void>;
+  aportarNaMeta: (id: string, valor: number) => Promise<void>;
 
-  addDivida: (dados: Novo<Divida>) => void;
-  updateDivida: (id: string, mudancas: Partial<Divida>) => void;
-  removeDivida: (id: string) => void;
-  registrarPagamento: (dividaId: string, pagamento: Omit<PagamentoDivida, 'id'>) => void;
+  addDivida: (dados: Novo<Divida>) => Promise<void>;
+  updateDivida: (id: string, mudancas: Partial<Divida>) => Promise<void>;
+  removeDivida: (id: string) => Promise<void>;
+  registrarPagamento: (dividaId: string, pagamento: Omit<PagamentoDivida, 'id'>) => Promise<void>;
 
   /* sistema */
-  updatePerfil: (mudancas: Partial<Perfil>) => void;
-  alternarOcultarValores: () => void;
-  /**
-   * Sinaliza que a leitura do localStorage terminou.
-   * Precisa ser uma ação do próprio store: o `localStorage` é síncrono, então o
-   * zustand hidrata DURANTE o `create()` — a constante `useFinancas` ainda não
-   * existe nesse instante, e chamá-la ali lança ReferenceError.
-   */
-  marcarHidratado: () => void;
-  importar: (estado: EstadoFinanceiro) => void;
-  restaurarDemo: () => void;
-  limparTudo: () => void;
+  updatePerfil: (mudancas: Partial<Perfil>) => Promise<void>;
+  alternarOcultarValores: () => Promise<void>;
+  restaurarDemo: () => Promise<void>;
+  limparTudo: () => Promise<void>;
 }
 
-export type StoreFinancas = EstadoFinanceiro & Acoes & { hidratado: boolean };
-
-const marcar = <T extends object>(dados: T) => ({ ...dados, id: uid(), criadoEm: hojeISO() });
-
-/**
- * v1 → v2: troca as cores azul/roxo que o seed antigo distribuía pela paleta atual.
- *
- * Regras que tornam isso seguro:
- * - só reescreve `cor`, e só quando o valor bate EXATAMENTE com um padrão antigo;
- *   qualquer cor escolhida à mão fica como está;
- * - nenhum campo de valor, data, status ou vínculo é tocado;
- * - qualquer falha devolve o estado intacto — cor é cosmético, dado financeiro não.
- */
-const CORES_LEGADAS: Record<'categorias' | 'metas' | 'contas' | 'cartoes', Record<string, string>> = {
-  categorias: {
-    '#3B82F6': '#404040', // Moradia / Aluguel
-    '#60A5FA': '#737373', // Luz, água e internet
-    '#8B5CF6': '#0F766E', // Transporte
-    '#EC4899': '#BE123C', // Saúde
-    '#06B6D4': '#15803D', // Lazer
-    '#A855F7': '#3F3F46', // Assinaturas
-  },
-  metas: { '#0EA5E9': '#16A34A' },
-  contas: { '#8B5CF6': '#820AD1', '#0EA5E9': '#0070AF' },
-  cartoes: { '#7C3AED': '#2A2A2A', '#F97316': '#7C2D12' },
+export type StoreFinancas = EstadoFinanceiro & Acoes & {
+  /** Primeira carga concluída (com ou sem dados). */
+  hidratado: boolean;
+  /** Busca em andamento. */
+  carregando: boolean;
+  /** Falha na última carga. A interface oferece "tentar de novo". */
+  erro: string | null;
 };
 
-function migrarCores(persistido: unknown): EstadoFinanceiro {
-  const estado = persistido as EstadoFinanceiro;
-  try {
-    const trocar = <T extends { cor: string }>(itens: T[] | undefined, mapa: Record<string, string>) =>
-      (itens ?? []).map((item) =>
-        mapa[item.cor?.toUpperCase?.()] ? { ...item, cor: mapa[item.cor.toUpperCase()] } : item,
+const texto = (falha: unknown) =>
+  falha instanceof Error ? falha.message : 'Não foi possível concluir a operação.';
+
+export const useFinancas = create<StoreFinancas>()((set, get) => ({
+  ...ESTADO_VAZIO,
+  hidratado: false,
+  carregando: false,
+  erro: null,
+
+  /* ─────────────────────── ciclo de vida ─────────────────────── */
+
+  carregarDoServidor: async () => {
+    set({ carregando: true, erro: null });
+    try {
+      // Conta nova recebe o plano de categorias; sem ele o formulário de
+      // lançamento abre sem saída, como acontecia na versão local.
+      await garantirCategorias();
+      const estado = await carregarEstado();
+      set({ ...estado, hidratado: true, carregando: false, erro: null });
+    } catch (falha) {
+      // Não marca `hidratado`: a tela mostra o erro com opção de recarregar,
+      // em vez de fingir uma carteira vazia que não é a da pessoa.
+      set({ carregando: false, erro: texto(falha) });
+    }
+  },
+
+  /** Ao sair, zera o cache para que a próxima conta não veja dados da anterior. */
+  limparSessao: () => set({ ...ESTADO_VAZIO, hidratado: false, carregando: false, erro: null }),
+
+  /* ─────────────────────────── Transações ─────────────────────────── */
+
+  addTransacao: async ({ parcelas, ...dados }) => {
+    const criadas = await servicoTransacoes.criar(dados, parcelas);
+    set((s) => ({ transacoes: [...criadas, ...s.transacoes] }));
+  },
+
+  updateTransacao: async (id, mudancas) => {
+    const atualizada = await servicoTransacoes.atualizar(id, transacaoParaLinha(mudancas));
+    set((s) => ({ transacoes: s.transacoes.map((t) => (t.id === id ? atualizada : t)) }));
+  },
+
+  removeTransacao: async (id) => {
+    await servicoTransacoes.excluir(id);
+    set((s) => ({ transacoes: s.transacoes.filter((t) => t.id !== id) }));
+  },
+
+  removeGrupoParcelas: async (grupoId) => {
+    await servicoTransacoes.excluirGrupoParcelas(grupoId);
+    set((s) => ({ transacoes: s.transacoes.filter((t) => t.parcela?.grupoId !== grupoId) }));
+  },
+
+  alternarStatus: async (id) => {
+    const atual = get().transacoes.find((t) => t.id === id);
+    if (!atual) return;
+    const atualizada = await servicoTransacoes.alternarStatus(id, atual.status);
+    set((s) => ({ transacoes: s.transacoes.map((t) => (t.id === id ? atualizada : t)) }));
+  },
+
+  /* ───────────────────────────── Contas ───────────────────────────── */
+
+  addConta: async (dados) => {
+    const nova = await servicoContas.criar(contaParaLinha(dados as Conta));
+    set((s) => ({ contas: [...s.contas, nova] }));
+  },
+
+  updateConta: async (id, m) => {
+    const atualizada = await servicoContas.atualizar(id, contaParaLinha(m));
+    set((s) => ({ contas: s.contas.map((c) => (c.id === id ? atualizada : c)) }));
+  },
+
+  removeConta: async (id) => {
+    await servicoContas.excluir(id);
+    // O banco zera os vínculos por `on delete set null`. Recarregar é a forma
+    // de o estado local refletir esses efeitos colaterais sem recalculá-los
+    // à mão — e sem arriscar divergir do que ficou gravado.
+    await get().carregarDoServidor();
+  },
+
+  /* ───────────────────────────── Cartões ──────────────────────────── */
+
+  addCartao: async (dados) => {
+    const novo = await servicoCartoes.criar(cartaoParaLinha(dados as Cartao));
+    set((s) => ({ cartoes: [...s.cartoes, novo] }));
+  },
+
+  updateCartao: async (id, m) => {
+    const atualizado = await servicoCartoes.atualizar(id, cartaoParaLinha(m));
+    set((s) => ({ cartoes: s.cartoes.map((c) => (c.id === id ? atualizado : c)) }));
+  },
+
+  removeCartao: async (id) => {
+    await servicoCartoes.excluir(id);
+    await get().carregarDoServidor();
+  },
+
+  /* ──────────────────────────── Categorias ────────────────────────── */
+
+  addCategoria: async (dados) => {
+    const nova = await servicoCategorias.criar(categoriaParaLinha(dados as Categoria));
+    set((s) => ({ categorias: [...s.categorias, nova] }));
+  },
+
+  updateCategoria: async (id, m) => {
+    const atualizada = await servicoCategorias.atualizar(id, categoriaParaLinha(m));
+    set((s) => ({ categorias: s.categorias.map((c) => (c.id === id ? atualizada : c)) }));
+  },
+
+  removeCategoria: async (id) => {
+    await servicoCategorias.excluir(id);
+    // Subcategorias sobem de nível e lançamentos ficam sem categoria, pelo
+    // `on delete set null`. Recarrega para refletir os dois efeitos.
+    await get().carregarDoServidor();
+  },
+
+  /* ─────────────────────────── Recorrências ───────────────────────── */
+
+  addRecorrencia: async (dados) => {
+    const nova = await servicoRecorrencias.criar(recorrenciaParaLinha(dados as Recorrencia));
+    set((s) => ({ recorrencias: [...s.recorrencias, nova] }));
+  },
+
+  updateRecorrencia: async (id, m) => {
+    const atualizada = await servicoRecorrencias.atualizar(id, recorrenciaParaLinha(m));
+    set((s) => ({ recorrencias: s.recorrencias.map((r) => (r.id === id ? atualizada : r)) }));
+  },
+
+  removeRecorrencia: async (id) => {
+    await servicoRecorrencias.excluir(id);
+    await get().carregarDoServidor();
+  },
+
+  /**
+   * Gera os lançamentos previstos da competência.
+   *
+   * A regra de quais recorrências vencem no mês continua sendo a de
+   * `recorrenciaVenceNoMes` — não foi reescrita. O que mudou é a garantia de
+   * não duplicar: agora é a constraint única (recorrencia_id, competencia) no
+   * banco, e não uma conferência otimista que duas abas abertas driblariam.
+   */
+  gerarLancamentosDoMes: async (comp) => {
+    const { recorrencias, assinaturas, transacoes } = get();
+    const [ano, mes] = comp.split('-').map(Number);
+    const linhas: Record<string, unknown>[] = [];
+
+    for (const rec of recorrencias) {
+      if (!recorrenciaVenceNoMes(rec, comp)) continue;
+      linhas.push({
+        ...transacaoParaLinha({
+          tipo: rec.tipo,
+          descricao: rec.nome,
+          valor: rec.valorPrevisto,
+          data: diaSeguro(ano, mes, rec.diaVencimento),
+          categoriaId: rec.categoriaId,
+          contaId: rec.contaId,
+          cartaoId: rec.cartaoId ?? null,
+          status: 'pendente',
+          observacao:
+            rec.natureza === 'variavel' ? 'Valor estimado — confirme quando a conta chegar.' : undefined,
+          etiquetas: [rec.natureza === 'fixa' ? 'conta fixa' : 'conta variável'],
+          recorrenciaId: rec.id,
+        }),
+        id: uid(),
+      });
+    }
+
+    // Assinaturas não têm coluna de vínculo; a etiqueta marcadora continua
+    // sendo o que evita repetir a cobrança, como na versão local.
+    for (const ass of assinaturas) {
+      if (!ass.ativa) continue;
+      const marcador = `assinatura:${ass.id}`;
+      const jaExiste = transacoes.some(
+        (t) => t.etiquetas.includes(marcador) && t.data.startsWith(comp),
       );
+      if (jaExiste) continue;
+      linhas.push({
+        ...transacaoParaLinha({
+          tipo: 'despesa',
+          descricao: ass.nome,
+          valor: ass.valor,
+          data: diaSeguro(ano, mes, ass.diaCobranca),
+          categoriaId: ass.categoriaId,
+          contaId: null,
+          cartaoId: ass.cartaoId,
+          status: 'pendente',
+          etiquetas: ['assinatura', marcador],
+        }),
+        id: uid(),
+      });
+    }
 
-    return {
-      ...estado,
-      categorias: trocar(estado.categorias, CORES_LEGADAS.categorias),
-      metas: trocar(estado.metas, CORES_LEGADAS.metas),
-      contas: trocar(estado.contas, CORES_LEGADAS.contas),
-      cartoes: trocar(estado.cartoes, CORES_LEGADAS.cartoes),
-    };
-  } catch (falha) {
-    console.error('Migração de cores ignorada; os dados seguem como estavam:', falha);
-    return estado;
-  }
-}
+    const criados = await servicoTransacoes.gerarDoMes(linhas, comp);
+    if (criados > 0) await get().carregarDoServidor();
+    else set((s) => ({ recorrenciasGeradas: Array.from(new Set([...s.recorrenciasGeradas, comp])) }));
+    return criados;
+  },
 
-export const useFinancas = create<StoreFinancas>()(
-  persist(
-    (set, get) => ({
-      ...ESTADO_VAZIO,
-      hidratado: false,
+  /* ─────────────────────────── Assinaturas ───────────────────────── */
 
-      /* ─── Transações ─── */
-      addTransacao: ({ parcelas, ...dados }) => {
-        // Compra parcelada vira N lançamentos ligados por um grupoId.
-        if (parcelas && parcelas > 1) {
-          const grupoId = uid();
-          const partes = gerarParcelas(dados.valor, parcelas, dados.data);
-          const novas: Transacao[] = partes.map((p) => ({
-            ...(dados as Omit<Transacao, 'id' | 'criadoEm'>),
-            id: uid(),
-            criadoEm: hojeISO(),
-            valor: p.valor,
-            data: p.data,
-            descricao: `${dados.descricao} (${p.numero}/${parcelas})`,
-            status: p.numero === 1 ? dados.status : 'pendente',
-            parcela: { numero: p.numero, total: parcelas, grupoId },
-          }));
-          set((s) => ({ transacoes: [...novas, ...s.transacoes] }));
-          return;
-        }
-        set((s) => ({ transacoes: [marcar(dados) as Transacao, ...s.transacoes] }));
-      },
+  addAssinatura: async (dados) => {
+    const nova = await servicoAssinaturas.criar(assinaturaParaLinha(dados as Assinatura));
+    set((s) => ({ assinaturas: [...s.assinaturas, nova] }));
+  },
 
-      updateTransacao: (id, mudancas) =>
-        set((s) => ({ transacoes: s.transacoes.map((t) => (t.id === id ? { ...t, ...mudancas } : t)) })),
+  updateAssinatura: async (id, m) => {
+    const atualizada = await servicoAssinaturas.atualizar(id, assinaturaParaLinha(m));
+    set((s) => ({ assinaturas: s.assinaturas.map((a) => (a.id === id ? atualizada : a)) }));
+  },
 
-      removeTransacao: (id) => set((s) => ({ transacoes: s.transacoes.filter((t) => t.id !== id) })),
+  removeAssinatura: async (id) => {
+    await servicoAssinaturas.excluir(id);
+    set((s) => ({ assinaturas: s.assinaturas.filter((a) => a.id !== id) }));
+  },
 
-      removeGrupoParcelas: (grupoId) =>
-        set((s) => ({ transacoes: s.transacoes.filter((t) => t.parcela?.grupoId !== grupoId) })),
+  /* ────────────────────────── Investimentos ──────────────────────── */
 
-      alternarStatus: (id) =>
-        set((s) => ({
-          transacoes: s.transacoes.map((t) =>
-            t.id === id ? { ...t, status: t.status === 'pago' ? 'pendente' : 'pago' } : t,
-          ),
-        })),
+  addAtivo: async (dados) => {
+    const novo = await servicoAtivos.criar(ativoParaLinha(dados as Ativo));
+    set((s) => ({ ativos: [...s.ativos, novo] }));
+  },
 
-      /* ─── Contas ─── */
-      addConta: (dados) => set((s) => ({ contas: [...s.contas, marcar(dados) as Conta] })),
-      updateConta: (id, m) => set((s) => ({ contas: s.contas.map((c) => (c.id === id ? { ...c, ...m } : c)) })),
-      removeConta: (id) =>
-        set((s) => ({
-          contas: s.contas.filter((c) => c.id !== id),
-          // Lançamentos órfãos continuam existindo, apenas sem conta vinculada.
-          transacoes: s.transacoes.map((t) =>
-            t.contaId === id ? { ...t, contaId: null } : t.contaDestinoId === id ? { ...t, contaDestinoId: null } : t,
-          ),
-        })),
+  updateAtivo: async (id, m) => {
+    const atualizado = await servicoAtivos.atualizar(id, ativoParaLinha(m));
+    set((s) => ({ ativos: s.ativos.map((a) => (a.id === id ? atualizado : a)) }));
+  },
 
-      /* ─── Cartões ─── */
-      addCartao: (dados) => set((s) => ({ cartoes: [...s.cartoes, marcar(dados) as Cartao] })),
-      updateCartao: (id, m) => set((s) => ({ cartoes: s.cartoes.map((c) => (c.id === id ? { ...c, ...m } : c)) })),
-      removeCartao: (id) =>
-        set((s) => ({
-          cartoes: s.cartoes.filter((c) => c.id !== id),
-          assinaturas: s.assinaturas.map((a) => (a.cartaoId === id ? { ...a, cartaoId: null } : a)),
-          transacoes: s.transacoes.map((t) => (t.cartaoId === id ? { ...t, cartaoId: null } : t)),
-        })),
+  removeAtivo: async (id) => {
+    await servicoAtivos.excluir(id);
+    set((s) => ({ ativos: s.ativos.filter((a) => a.id !== id) }));
+  },
 
-      /* ─── Categorias ─── */
-      addCategoria: (dados) => set((s) => ({ categorias: [...s.categorias, { ...dados, id: uid() }] })),
-      updateCategoria: (id, m) =>
-        set((s) => ({ categorias: s.categorias.map((c) => (c.id === id ? { ...c, ...m } : c)) })),
-      removeCategoria: (id) =>
-        set((s) => ({
-          // Subcategorias sobem um nível em vez de sumirem junto.
-          categorias: s.categorias
-            .filter((c) => c.id !== id)
-            .map((c) => (c.paiId === id ? { ...c, paiId: null } : c)),
-          transacoes: s.transacoes.map((t) => (t.categoriaId === id ? { ...t, categoriaId: null } : t)),
-        })),
+  aplicarCotacoes: async (cotacoes) => {
+    const ativos = get().ativos;
+    await servicoAtivos.aplicarCotacoes(cotacoes, ativos);
+    const agora = new Date().toISOString();
+    set({
+      ativos: ativos.map((a) => {
+        const c = cotacoes[a.ticker.toUpperCase()];
+        if (!c) return a;
+        return {
+          ...a,
+          precoAtual: c.preco,
+          dividendYield: c.dividendYield ?? a.dividendYield,
+          atualizadoEm: agora,
+        };
+      }),
+    });
+  },
 
-      /* ─── Recorrências ─── */
-      addRecorrencia: (dados) => set((s) => ({ recorrencias: [...s.recorrencias, marcar(dados) as Recorrencia] })),
-      updateRecorrencia: (id, m) =>
-        set((s) => ({ recorrencias: s.recorrencias.map((r) => (r.id === id ? { ...r, ...m } : r)) })),
-      removeRecorrencia: (id) =>
-        set((s) => ({
-          recorrencias: s.recorrencias.filter((r) => r.id !== id),
-          transacoes: s.transacoes.map((t) => (t.recorrenciaId === id ? { ...t, recorrenciaId: null } : t)),
-        })),
+  /* ──────────────────────────────  Metas ─────────────────────────── */
 
-      gerarLancamentosDoMes: (comp) => {
-        const { recorrencias, assinaturas, transacoes } = get();
-        const [ano, mes] = comp.split('-').map(Number);
-        const novos: Transacao[] = [];
+  addMeta: async (dados) => {
+    const nova = await servicoMetas.criar(metaParaLinha(dados as Meta));
+    set((s) => ({ metas: [...s.metas, nova] }));
+  },
 
-        for (const rec of recorrencias) {
-          if (!recorrenciaVenceNoMes(rec, comp)) continue;
-          const jaExiste = transacoes.some((t) => t.recorrenciaId === rec.id && t.data.startsWith(comp));
-          if (jaExiste) continue;
-          novos.push({
-            id: uid(), tipo: rec.tipo, descricao: rec.nome, valor: rec.valorPrevisto,
-            data: diaSeguro(ano, mes, rec.diaVencimento),
-            categoriaId: rec.categoriaId, contaId: rec.contaId, cartaoId: rec.cartaoId ?? null,
-            status: 'pendente',
-            observacao: rec.natureza === 'variavel' ? 'Valor estimado — confirme quando a conta chegar.' : undefined,
-            etiquetas: [rec.natureza === 'fixa' ? 'conta fixa' : 'conta variável'],
-            anexos: [], recorrenciaId: rec.id, criadoEm: hojeISO(),
-          });
-        }
+  updateMeta: async (id, m) => {
+    const atualizada = await servicoMetas.atualizar(id, metaParaLinha(m));
+    set((s) => ({ metas: s.metas.map((x) => (x.id === id ? atualizada : x)) }));
+  },
 
-        for (const ass of assinaturas) {
-          if (!ass.ativa) continue;
-          const marcador = `assinatura:${ass.id}`;
-          const jaExiste = transacoes.some((t) => t.etiquetas.includes(marcador) && t.data.startsWith(comp));
-          if (jaExiste) continue;
-          novos.push({
-            id: uid(), tipo: 'despesa', descricao: ass.nome, valor: ass.valor,
-            data: diaSeguro(ano, mes, ass.diaCobranca),
-            categoriaId: ass.categoriaId, contaId: null, cartaoId: ass.cartaoId,
-            status: 'pendente', etiquetas: ['assinatura', marcador], anexos: [], criadoEm: hojeISO(),
-          });
-        }
+  removeMeta: async (id) => {
+    await servicoMetas.excluir(id);
+    set((s) => ({ metas: s.metas.filter((m) => m.id !== id) }));
+  },
 
-        if (novos.length) {
-          set((s) => ({
-            transacoes: [...novos, ...s.transacoes],
-            recorrenciasGeradas: Array.from(new Set([...s.recorrenciasGeradas, comp])),
-          }));
-        } else {
-          set((s) => ({ recorrenciasGeradas: Array.from(new Set([...s.recorrenciasGeradas, comp])) }));
-        }
-        return novos.length;
-      },
+  aportarNaMeta: async (id, valor) => {
+    const meta = get().metas.find((m) => m.id === id);
+    if (!meta) return;
+    // Mesma regra de antes: nunca negativo, conclui ao atingir o alvo.
+    const atual = Math.max(0, meta.valorAtual + valor);
+    const atualizada = await servicoMetas.atualizar(id, {
+      valor_atual: atual,
+      concluida: atual >= meta.valorAlvo,
+    });
+    set((s) => ({ metas: s.metas.map((m) => (m.id === id ? atualizada : m)) }));
+  },
 
-      /* ─── Assinaturas ─── */
-      addAssinatura: (dados) => set((s) => ({ assinaturas: [...s.assinaturas, marcar(dados) as Assinatura] })),
-      updateAssinatura: (id, m) =>
-        set((s) => ({ assinaturas: s.assinaturas.map((a) => (a.id === id ? { ...a, ...m } : a)) })),
-      removeAssinatura: (id) => set((s) => ({ assinaturas: s.assinaturas.filter((a) => a.id !== id) })),
+  /* ────────────────────────────── Dívidas ────────────────────────── */
 
-      /* ─── Investimentos ─── */
-      addAtivo: (dados) => set((s) => ({ ativos: [...s.ativos, marcar(dados) as Ativo] })),
-      updateAtivo: (id, m) => set((s) => ({ ativos: s.ativos.map((a) => (a.id === id ? { ...a, ...m } : a)) })),
-      removeAtivo: (id) => set((s) => ({ ativos: s.ativos.filter((a) => a.id !== id) })),
-      aplicarCotacoes: (cotacoes) =>
-        set((s) => ({
-          ativos: s.ativos.map((a) => {
-            const c = cotacoes[a.ticker.toUpperCase()];
-            if (!c) return a;
-            return {
-              ...a,
-              precoAtual: c.preco,
-              dividendYield: c.dividendYield ?? a.dividendYield,
-              atualizadoEm: new Date().toISOString(),
-            };
-          }),
-        })),
+  addDivida: async (dados) => {
+    const nova = await servicoDividas.criar(dividaParaLinha(dados as Divida));
+    set((s) => ({ dividas: [...s.dividas, { ...nova, pagamentos: [] }] }));
+  },
 
-      /* ─── Metas ─── */
-      addMeta: (dados) => set((s) => ({ metas: [...s.metas, marcar(dados) as Meta] })),
-      updateMeta: (id, m) => set((s) => ({ metas: s.metas.map((x) => (x.id === id ? { ...x, ...m } : x)) })),
-      removeMeta: (id) => set((s) => ({ metas: s.metas.filter((m) => m.id !== id) })),
-      aportarNaMeta: (id, valor) =>
-        set((s) => ({
-          metas: s.metas.map((m) => {
-            if (m.id !== id) return m;
-            const atual = Math.max(0, m.valorAtual + valor);
-            return { ...m, valorAtual: atual, concluida: atual >= m.valorAlvo };
-          }),
-        })),
+  updateDivida: async (id, m) => {
+    const atualizada = await servicoDividas.atualizar(id, dividaParaLinha(m));
+    set((s) => ({
+      dividas: s.dividas.map((d) =>
+        d.id === id ? { ...atualizada, pagamentos: d.pagamentos } : d,
+      ),
+    }));
+  },
 
-      /* ─── Dívidas ─── */
-      addDivida: (dados) => set((s) => ({ dividas: [...s.dividas, marcar(dados) as Divida] })),
-      updateDivida: (id, m) => set((s) => ({ dividas: s.dividas.map((d) => (d.id === id ? { ...d, ...m } : d)) })),
-      removeDivida: (id) => set((s) => ({ dividas: s.dividas.filter((d) => d.id !== id) })),
-      registrarPagamento: (dividaId, pagamento) =>
-        set((s) => ({
-          dividas: s.dividas.map((d) => {
-            if (d.id !== dividaId) return d;
-            const saldo = Math.max(0, Math.round((d.saldoAtual - pagamento.valor) * 100) / 100);
-            return {
-              ...d,
-              saldoAtual: saldo,
-              status: saldo <= 0 ? 'quitada' : d.status,
-              negativado: saldo <= 0 ? false : d.negativado,
-              parcelasRestantes: d.parcelasRestantes ? Math.max(0, d.parcelasRestantes - 1) : undefined,
-              pagamentos: [...d.pagamentos, { ...pagamento, id: uid() }],
-            };
-          }),
-        })),
+  removeDivida: async (id) => {
+    await servicoDividas.excluir(id);
+    set((s) => ({ dividas: s.dividas.filter((d) => d.id !== id) }));
+  },
 
-      /* ─── Sistema ─── */
-      updatePerfil: (m) => set((s) => ({ perfil: { ...s.perfil, ...m } })),
-      alternarOcultarValores: () =>
-        set((s) => ({ perfil: { ...s.perfil, ocultarValores: !s.perfil.ocultarValores } })),
-      marcarHidratado: () => set({ hidratado: true }),
-      importar: (estado) => set({ ...estado }),
-      restaurarDemo: () => set({ ...gerarSeed() }),
-      /**
-       * Apaga lançamentos, contas, cartões e cadastros — mas repõe o plano de
-       * categorias. Sem categoria nenhuma o formulário de lançamento abre com um
-       * campo vazio e sem saída, e o sistema fica inutilizável depois da limpeza.
-       */
-      limparTudo: () => set({ ...ESTADO_VAZIO, categorias: categoriasPadrao(), perfil: get().perfil }),
-    }),
-    {
-      name: CHAVE_PERSISTENCIA,
-      storage: createJSONStorage(() => localStorage),
-      version: 2,
-      migrate: migrarCores,
-      partialize: ({ hidratado: _ignorado, ...resto }) => resto,
-      onRehydrateStorage: () => (estado, erro) => {
-        if (erro) console.error('Falha ao ler os dados salvos:', erro);
-        if (!estado) return;
-        try {
-          // Primeira visita: carrega a demo em vez de abrir uma tela vazia.
-          if (!estado.contas.length && !estado.transacoes.length) {
-            estado.importar(gerarSeed());
-          } else if (!estado.categorias.length) {
-            // Quem apagou tudo numa versão anterior ficou sem categoria alguma e
-            // sem como criar lançamento. Repõe o plano padrão sem tocar no resto.
-            estado.importar({ ...estado, categorias: categoriasPadrao() });
-          }
-          estado.gerarLancamentosDoMes(
-            competenciaDe(new Date().getFullYear(), new Date().getMonth() + 1),
-          );
-        } catch (falha) {
-          // Semear é conveniência, não requisito. Se falhar, a interface abre
-          // vazia — nunca presa num esqueleto infinito.
-          console.error('Não foi possível preparar os dados iniciais:', falha);
-        } finally {
-          estado.marcarHidratado();
-        }
-      },
-    },
-  ),
-);
+  registrarPagamento: async (dividaId, pagamento) => {
+    const divida = get().dividas.find((d) => d.id === dividaId);
+    if (!divida) return;
+    const atualizada = await servicoDividas.registrarPagamento(divida, pagamento);
+    set((s) => ({ dividas: s.dividas.map((d) => (d.id === dividaId ? atualizada : d)) }));
+  },
+
+  /* ─────────────────────────────── Sistema ───────────────────────── */
+
+  updatePerfil: async (m) => {
+    await servicoPerfil.atualizar(m);
+    set((s) => ({ perfil: { ...s.perfil, ...m } }));
+  },
+
+  alternarOcultarValores: async () => {
+    const novo = !get().perfil.ocultarValores;
+    // Atualiza a tela primeiro: é preferência de exibição, não dado financeiro,
+    // e esperar a rede para esconder um valor seria estranho de usar.
+    set((s) => ({ perfil: { ...s.perfil, ocultarValores: novo } }));
+    try {
+      await servicoPerfil.atualizar({ ocultarValores: novo });
+    } catch {
+      set((s) => ({ perfil: { ...s.perfil, ocultarValores: !novo } }));
+    }
+  },
+
+  restaurarDemo: async () => {
+    const { gerarSeed } = await import('./seed');
+    const { importarBackup } = await import('@/services/migracao');
+    await get().limparTudo();
+    const resultado = await importarBackup(gerarSeed());
+    if (!resultado.ok) throw new Error(resultado.erro ?? 'Falha ao carregar a demonstração.');
+    await get().carregarDoServidor();
+  },
+
+  limparTudo: async () => {
+    const { apagarTudoDoUsuario } = await import('@/services/limpeza');
+    await apagarTudoDoUsuario();
+    await get().carregarDoServidor();
+  },
+}));
 
 /** Seletor auxiliar: evita re-render de tela inteira ao mexer numa lista só. */
 export const seletores = {

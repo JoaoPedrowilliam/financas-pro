@@ -49,12 +49,26 @@ jobs:
           # saber que mora numa subpasta. Lido do próprio repositório: renomear
           # o repo não quebra o build.
           BASE_PATH: /${{ github.event.repository.name }}
-          # Credenciais do Supabase. São chaves públicas — ficam embutidas no
-          # bundle de qualquer forma —, então tanto faz cadastrá-las como
-          # Secrets ou como Variables do repositório; aceitamos as duas formas.
-          # A service_role key NÃO pode aparecer aqui em hipótese alguma.
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          # Credenciais do Supabase, com fallback para os valores do projeto.
+          #
+          # Por que os valores aparecem aqui em texto, num repositório público:
+          # estas duas chaves são projetadas para serem públicas. Elas vão
+          # embutidas no bundle JavaScript de qualquer forma — qualquer pessoa
+          # que abrir o site consegue lê-las no DevTools. Escondê-las num Secret
+          # daria sensação de proteção sem proteger nada.
+          #
+          # O que realmente protege os dados é o Row Level Security no Postgres,
+          # que só devolve linhas do usuário autenticado. Isso foi verificado:
+          # sete testes confirmam que um usuário não lê, não altera, não exclui
+          # e não grava em nome de outro.
+          #
+          # O que NÃO pode aparecer aqui, nunca: a chave `sb_secret_...` e a
+          # senha do banco. Essas ignoram o RLS.
+          #
+          # Secret ou Variable do repositório, se cadastrados, têm precedência —
+          # é só criar com estes nomes que o fallback deixa de ser usado.
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL || 'https://vkvghaejjxrivespyajo.supabase.co' }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || vars.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_OiAUGP5MY1HDhLiBz_TkEg_0YXvWRks' }}
         run: npm run build
 
       - name: Conferir se as credenciais entraram no build

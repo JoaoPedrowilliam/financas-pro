@@ -31,6 +31,19 @@ begin
 end;
 $func$;
 
+-- Deriva a competência ('YYYY-MM') da data do lançamento.
+-- Roda em BEFORE, antes das constraints, então o NOT NULL e a unicidade já
+-- enxergam o valor preenchido.
+create or replace function public.definir_competencia()
+returns trigger
+language plpgsql
+as $func$
+begin
+  new.competencia = to_char(new.data, 'YYYY-MM');
+  return new;
+end;
+$func$;
+
 -- ───────────────────────────── enumerações ─────────────────────────────
 -- Espelham as union types do TypeScript. Enum em vez de check para que um valor
 -- novo no app falhe alto no banco, em vez de gravar lixo silenciosamente.
@@ -179,11 +192,20 @@ create table public.transacoes (
   parcela_numero   smallint check (parcela_numero is null or parcela_numero > 0),
   parcela_total    smallint check (parcela_total is null or parcela_total > 1),
   parcela_grupo_id uuid,
-  -- Competência 'YYYY-MM' derivada da data. Coluna gerada, e não expressão em
-  -- índice, por dois motivos: o PostgREST só sabe apontar `on conflict` para
-  -- colunas reais, e o app filtra por competência o tempo todo — ter a coluna
-  -- torna a consulta direta em vez de calculada em cada linha.
-  competencia      text generated always as (to_char(data, 'YYYY-MM')) stored,
+  -- Competência 'YYYY-MM' derivada da data, mantida pelo trigger
+  -- `transacoes_competencia` logo abaixo.
+  --
+  -- Coluna real, e não expressão em índice, porque o PostgREST só sabe apontar
+  -- `on conflict` para colunas — e é disso que depende a idempotência da
+  -- geração de recorrências.
+  --
+  -- Preenchida por trigger e não por GENERATED ALWAYS porque coluna gerada
+  -- exige expressão IMMUTABLE, e to_char(date, text) é apenas STABLE: o
+  -- resultado depende de DateStyle e lc_time. Trigger não tem essa restrição.
+  -- O NOT NULL é a rede de proteção: se o trigger for removido, o insert falha
+  -- alto em vez de gravar competência vazia e quebrar a idempotência em
+  -- silêncio.
+  competencia      text not null,
   criado_em        timestamptz not null default now(),
   atualizado_em    timestamptz not null default now(),
 
@@ -397,6 +419,12 @@ begin
   end loop;
 end;
 $bloco$;
+
+-- Precisa ser BEFORE INSERT também, e não só update: a competência tem que
+-- existir já na primeira gravação.
+create trigger transacoes_competencia
+  before insert or update on public.transacoes
+  for each row execute function public.definir_competencia();
 
 -- ═══════════════════ perfil automático no cadastro ════════════════════
 -- Sem isto, um usuário recém-criado ficaria sem linha em perfis e a primeira

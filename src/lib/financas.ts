@@ -1,4 +1,5 @@
 import type {
+  Assinatura,
   Ativo,
   Cartao,
   Categoria,
@@ -8,7 +9,9 @@ import type {
   Recorrencia,
   Transacao,
 } from '@/types';
-import { agrupar, competencia, competenciaDe, dataDe, diaSeguro, hojeISO, somar } from './utils';
+import {
+  agrupar, competencia, competenciaDe, dataDe, diaSeguro, diasNoMes, hojeISO, somar,
+} from './utils';
 
 /* ────────────────────────────── Saldos e patrimônio ───────────────────────────── */
 
@@ -522,6 +525,171 @@ export function planoDeQuitacao(dividas: Divida[], orcamentoMensal: number, estr
     quitacoes,
     linhaDoTempo,
   };
+}
+
+/* ───────────────────────── Projeção de gastos ───────────────────────── */
+
+/**
+ * Projeção de quanto o mês vai fechar.
+ *
+ * O gasto é separado em três camadas, porque elas têm graus de certeza bem
+ * diferentes e misturá-las num número só esconde o que importa:
+ *
+ *  1. REALIZADO    — já saiu. Fato.
+ *  2. COMPROMETIDO — ainda não saiu, mas já tem dono: parcela que vai cair,
+ *                    conta fixa do mês, assinatura, lançamento pendente.
+ *                    Quase fato: só não acontece se você cancelar algo.
+ *  3. ESTIMADO     — extrapolação do gasto avulso no ritmo atual. É palpite,
+ *                    e no começo do mês é um palpite ruim — daí o campo
+ *                    `confianca`.
+ *
+ * Mês passado não tem projeção: devolve o realizado. Mês futuro não tem ritmo
+ * para extrapolar: devolve só o comprometido, que é o piso do mês.
+ */
+export interface ProjecaoMes {
+  competencia: string;
+  situacao: 'passado' | 'corrente' | 'futuro';
+  diasDecorridos: number;
+  diasNoMes: number;
+  /** Despesas já pagas. */
+  realizado: number;
+  /** Pendentes já lançados + recorrências e assinaturas do mês ainda sem lançamento. */
+  comprometido: number;
+  /** Extrapolação do gasto avulso para os dias que faltam. */
+  estimado: number;
+  /** realizado + comprometido + estimado. */
+  projetado: number;
+  receitaProjetada: number;
+  /** receitaProjetada − projetado. Negativo = o mês fecha no vermelho. */
+  sobraProjetada: number;
+  /** Ritmo de gasto avulso por dia, base da extrapolação. */
+  mediaDiaria: number;
+  /**
+   * Quanto confiar no número. Baixa quando o mês mal começou (poucos dias de
+   * ritmo) ou quando a parte estimada domina o total.
+   */
+  confianca: 'alta' | 'media' | 'baixa';
+}
+
+/** Um lançamento é "comprometido" quando nasceu de algo já contratado. */
+function ehComprometida(t: Transacao): boolean {
+  return Boolean(t.recorrenciaId) || Boolean(t.parcela) || t.etiquetas.includes('assinatura');
+}
+
+const PASSO_ASSINATURA: Record<Assinatura['periodicidade'], number> = {
+  mensal: 1,
+  bimestral: 2,
+  trimestral: 3,
+  semestral: 6,
+  anual: 12,
+};
+
+function assinaturaCobraNoMes(ass: Assinatura, comp: string): boolean {
+  if (!ass.ativa) return false;
+  const [ano, mes] = comp.split('-').map(Number);
+  const inicio = dataDe(ass.criadoEm.slice(0, 10));
+  const distancia = (ano - inicio.getFullYear()) * 12 + (mes - 1 - inicio.getMonth());
+  if (distancia < 0) return false;
+  return distancia % PASSO_ASSINATURA[ass.periodicidade] === 0;
+}
+
+export function projetarMes(estado: EstadoFinanceiro, comp: string, hoje = hojeISO()): ProjecaoMes {
+  const [ano, mes] = comp.split('-').map(Number);
+  const total = diasNoMes(ano, mes);
+  const compHoje = competencia(hoje);
+
+  const situacao: ProjecaoMes['situacao'] =
+    comp < compHoje ? 'passado' : comp > compHoje ? 'futuro' : 'corrente';
+
+  const doMes = transacoesDoMes(estado.transacoes, comp);
+  const despesas = doMes.filter((t) => t.tipo === 'despesa');
+
+  const realizado = somar(despesas.filter((t) => t.status === 'pago'), (t) => t.valor);
+  const pendentes = despesas.filter((t) => t.status !== 'pago');
+
+  // Recorrências que vencem no mês e ainda não viraram lançamento.
+  // Nas variáveis a média vale mais que o valor previsto, que envelhece.
+  const recorrenciasFaltando = estado.recorrencias
+    .filter((r) => r.tipo === 'despesa' && recorrenciaVenceNoMes(r, comp))
+    .filter((r) => !doMes.some((t) => t.recorrenciaId === r.id))
+    .map((r) =>
+      r.natureza === 'variavel' ? mediaDaVariavel(r, estado.transacoes).media : r.valorPrevisto,
+    );
+
+  const assinaturasFaltando = estado.assinaturas
+    .filter((a) => assinaturaCobraNoMes(a, comp))
+    .filter((a) => !doMes.some((t) => t.etiquetas.includes(`assinatura:${a.id}`)))
+    .map((a) => a.valor);
+
+  const comprometido =
+    somar(pendentes, (t) => t.valor) +
+    somar(recorrenciasFaltando, (v) => v) +
+    somar(assinaturasFaltando, (v) => v);
+
+  // Ritmo: só o gasto avulso já pago conta. Incluir parcela ou conta fixa
+  // inflaria a média diária e o mês projetado viraria ficção.
+  const avulsoPago = somar(
+    despesas.filter((t) => t.status === 'pago' && !ehComprometida(t)),
+    (t) => t.valor,
+  );
+
+  const diasDecorridos =
+    situacao === 'passado' ? total : situacao === 'futuro' ? 0 : Math.min(dataDe(hoje).getDate(), total);
+
+  const mediaDiaria = diasDecorridos > 0 ? avulsoPago / diasDecorridos : 0;
+  const diasRestantes = Math.max(0, total - diasDecorridos);
+  const estimado = situacao === 'corrente' ? mediaDiaria * diasRestantes : 0;
+
+  const projetado = realizado + comprometido + estimado;
+
+  // Receita: o que já entrou mais as recorrências de entrada ainda por vir.
+  const receitaRealizada = somar(doMes.filter((t) => t.tipo === 'receita'), (t) => t.valor);
+  const receitaFaltando = estado.recorrencias
+    .filter((r) => r.tipo === 'receita' && recorrenciaVenceNoMes(r, comp))
+    .filter((r) => !doMes.some((t) => t.recorrenciaId === r.id))
+    .map((r) => r.valorPrevisto);
+  const receitaProjetada = receitaRealizada + somar(receitaFaltando, (v) => v);
+
+  // Confiança: poucos dias de ritmo, ou estimativa dominando o total, derrubam.
+  const pesoEstimado = projetado > 0 ? estimado / projetado : 0;
+  const confianca: ProjecaoMes['confianca'] =
+    situacao !== 'corrente' || diasDecorridos >= 20 || pesoEstimado < 0.15
+      ? 'alta'
+      : diasDecorridos >= 7
+        ? 'media'
+        : 'baixa';
+
+  return {
+    competencia: comp,
+    situacao,
+    diasDecorridos,
+    diasNoMes: total,
+    realizado: arredondar(realizado),
+    comprometido: arredondar(comprometido),
+    estimado: arredondar(estimado),
+    projetado: arredondar(projetado),
+    receitaProjetada: arredondar(receitaProjetada),
+    sobraProjetada: arredondar(receitaProjetada - projetado),
+    mediaDiaria: arredondar(mediaDiaria),
+    confianca,
+  };
+}
+
+/**
+ * Projeção dos próximos meses. Só o comprometido entra: parcelas que já vão
+ * cair, contas fixas, assinaturas e a média das variáveis. É o piso de cada
+ * mês — o que você já deve mesmo sem gastar mais nada.
+ */
+export function projetarProximosMeses(
+  estado: EstadoFinanceiro,
+  quantidade = 3,
+  hoje = hojeISO(),
+): ProjecaoMes[] {
+  const base = dataDe(hoje);
+  return Array.from({ length: quantidade }, (_, i) => {
+    const alvo = new Date(base.getFullYear(), base.getMonth() + i + 1, 1);
+    return projetarMes(estado, competenciaDe(alvo.getFullYear(), alvo.getMonth() + 1), hoje);
+  });
 }
 
 /* ──────────────────────────────── Metas ──────────────────────────────── */

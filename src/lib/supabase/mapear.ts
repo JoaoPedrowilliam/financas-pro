@@ -61,6 +61,10 @@ export function perfilDeLinha(l: Linha, bloqueioPin: string | null = null): Perf
     moeda: ((l.moeda as string) ?? 'BRL') as Perfil['moeda'],
     inicioMesFinanceiro: num(l.inicio_mes_financeiro) || 1,
     ocultarValores: Boolean(l.ocultar_valores),
+    // Nulo e zero são estados diferentes: nulo = não informou, zero = sem renda.
+    rendaMensal: l.renda_mensal === null || l.renda_mensal === undefined
+      ? undefined
+      : num(l.renda_mensal),
     // O PIN nunca sai do dispositivo — não existe coluna para ele no banco.
     bloqueioPin,
   };
@@ -73,6 +77,7 @@ export function perfilParaLinha(p: Partial<Perfil>): Linha {
   if (p.moeda !== undefined) l.moeda = p.moeda;
   if (p.inicioMesFinanceiro !== undefined) l.inicio_mes_financeiro = p.inicioMesFinanceiro;
   if (p.ocultarValores !== undefined) l.ocultar_valores = p.ocultarValores;
+  if (p.rendaMensal !== undefined) l.renda_mensal = p.rendaMensal;
   return l;
 }
 

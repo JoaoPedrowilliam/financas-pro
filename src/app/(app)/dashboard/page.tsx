@@ -12,6 +12,7 @@ import { RoscaCategorias } from '@/components/dashboard/rosca-categorias';
 import { PainelInsights } from '@/components/dashboard/painel-insights';
 import { OrcamentoCategorias } from '@/components/dashboard/orcamento-categorias';
 import { ProjecaoGastos } from '@/components/dashboard/projecao-gastos';
+import { PainelRenda } from '@/components/dashboard/renda-comprometida';
 import { AcoesRapidas } from '@/components/dashboard/acoes-rapidas';
 import { ResumoNarrativo } from '@/components/dashboard/resumo-narrativo';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,7 +23,8 @@ import { Valor } from '@/components/shared/valor';
 import { useFinancas } from '@/store/use-financas';
 import {
   evolucaoDiaria, gastoPorCategoria, orcamentoPorCategoria, patrimonioLiquido,
-  progressoMeta, projetarMes, projetarProximosMeses, resumoDoMes, saldoTotal, serieAnual,
+  progressoMeta, projetarMes, projetarProximosMeses, rendaComprometida, resumoDoMes,
+  saldoTotal, serieAnual,
 } from '@/lib/financas';
 import { gerarInsights } from '@/lib/insights';
 import { competenciaDe, mesAnterior, variacao } from '@/lib/utils';
@@ -41,6 +43,7 @@ export default function PaginaDashboard() {
   const serie = React.useMemo(() => serieAnual(transacoes, ano), [transacoes, ano]);
   const patrimonio = React.useMemo(() => patrimonioLiquido(estado), [estado]);
   const projecao = React.useMemo(() => projetarMes(estado, comp), [estado, comp]);
+  const renda = React.useMemo(() => rendaComprometida(estado, comp), [estado, comp]);
   const proximosMeses = React.useMemo(() => projetarProximosMeses(estado, 3), [estado]);
   const insights = React.useMemo(() => gerarInsights(estado), [estado]);
 
@@ -163,6 +166,8 @@ export default function PaginaDashboard() {
       </div>
 
       <AcoesRapidas />
+
+      <PainelRenda dados={renda} />
 
       <ProjecaoGastos
         projecao={projecao}

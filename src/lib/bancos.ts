@@ -46,6 +46,14 @@ export const BANCOS: Banco[] = [
   { id: 'sicredi', nome: 'Sicredi', sigla: 'sicredi', cor: '#3FA110', corTexto: '#FFFFFF' },
   { id: 'sicoob', nome: 'Sicoob', sigla: 'sicoob', cor: '#003641', corTexto: '#49B02D' },
   { id: 'will', nome: 'Will Bank', sigla: 'will', cor: '#FFD200', corTexto: '#1A1A1A', apelidos: ['will', 'will bank'] },
+  // Benefícios corporativos: entram aqui porque o saldo do cartão de benefício
+  // é dinheiro que a pessoa administra como qualquer outra conta.
+  { id: 'flash', nome: 'Flash', sigla: 'flash', cor: '#FC2B6E', corTexto: '#FFFFFF', apelidos: ['flash', 'flash benefícios', 'flash beneficios', 'cartão flash', 'cartao flash'] },
+  { id: 'caju', nome: 'Caju', sigla: 'caju', cor: '#FF5A1F', corTexto: '#FFFFFF', apelidos: ['caju', 'caju benefícios', 'caju beneficios'] },
+  { id: 'alelo', nome: 'Alelo', sigla: 'alelo', cor: '#00A550', corTexto: '#FFFFFF', apelidos: ['alelo'] },
+  { id: 'vr', nome: 'VR', sigla: 'VR', cor: '#009640', corTexto: '#FFFFFF', apelidos: ['vr', 'vr benefícios', 'vr beneficios'] },
+  { id: 'ticket', nome: 'Ticket', sigla: 'ticket', cor: '#004B8D', corTexto: '#FFFFFF', apelidos: ['ticket', 'ticket restaurante'] },
+  { id: 'sodexo', nome: 'Sodexo / Pluxee', sigla: 'pluxee', cor: '#221C35', corTexto: '#FFFFFF', apelidos: ['sodexo', 'pluxee'] },
 ];
 
 /** Fallback para instituição não catalogada — desenha um ícone de banco em vez de monograma. */

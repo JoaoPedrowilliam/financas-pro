@@ -692,6 +692,104 @@ export function projetarProximosMeses(
   });
 }
 
+/* ─────────────────────── Comprometimento da renda ─────────────────────── */
+
+/**
+ * Quanto da renda mensal já tem destino antes de você gastar qualquer coisa.
+ *
+ * Entram só compromissos recorrentes — contas fixas, a média das variáveis,
+ * assinaturas e parcelas de dívida. Gasto avulso fica de fora de propósito:
+ * a pergunta aqui não é "quanto gastei", é "com quanto da minha renda eu já
+ * me comprometi". Mercado e restaurante são escolha do mês; aluguel não é.
+ *
+ * As faixas seguem o uso comum em orçamento doméstico: até 50% sobra espaço
+ * para poupar, acima de 80% qualquer imprevisto vira dívida.
+ */
+export type SituacaoRenda = 'saudavel' | 'apertada' | 'no-limite' | 'estourada';
+
+export interface RendaComprometida {
+  renda: number;
+  fixas: number;
+  variaveis: number;
+  assinaturas: number;
+  dividas: number;
+  total: number;
+  /** Nulo quando não há renda informada — não existe percentual de zero. */
+  percentual: number | null;
+  /** O que sobra depois dos compromissos. Negativo = os compromissos excedem a renda. */
+  livre: number;
+  situacao: SituacaoRenda;
+  linhas: { nome: string; valor: number; tipo: 'fixa' | 'variavel' | 'assinatura' | 'divida' }[];
+}
+
+function faixaDaRenda(percentual: number | null): SituacaoRenda {
+  if (percentual === null) return 'saudavel';
+  if (percentual > 100) return 'estourada';
+  if (percentual >= 80) return 'no-limite';
+  if (percentual >= 60) return 'apertada';
+  return 'saudavel';
+}
+
+export function rendaComprometida(
+  estado: EstadoFinanceiro,
+  comp: string,
+  hoje = hojeISO(),
+): RendaComprometida {
+  const renda = estado.perfil.rendaMensal ?? 0;
+  const linhas: RendaComprometida['linhas'] = [];
+
+  const doMes = estado.recorrencias.filter(
+    (r) => r.tipo === 'despesa' && recorrenciaVenceNoMes(r, comp),
+  );
+
+  let fixas = 0;
+  let variaveis = 0;
+  for (const rec of doMes) {
+    if (rec.natureza === 'fixa') {
+      fixas += rec.valorPrevisto;
+      linhas.push({ nome: rec.nome, valor: rec.valorPrevisto, tipo: 'fixa' });
+    } else {
+      // Na variável a média do histórico vale mais que o previsto, que envelhece.
+      const valor = mediaDaVariavel(rec, estado.transacoes).media;
+      variaveis += valor;
+      linhas.push({ nome: rec.nome, valor, tipo: 'variavel' });
+    }
+  }
+
+  let assinaturas = 0;
+  for (const ass of estado.assinaturas) {
+    if (!assinaturaCobraNoMes(ass, comp)) continue;
+    assinaturas += ass.valor;
+    linhas.push({ nome: ass.nome, valor: ass.valor, tipo: 'assinatura' });
+  }
+
+  let dividas = 0;
+  for (const d of estado.dividas) {
+    if (d.status === 'quitada') continue;
+    // Só a parcela acordada compromete o mês. Sem parcela definida, a dívida
+    // existe mas não tem compromisso mensal fixo — entra no patrimônio, não aqui.
+    if (!d.valorParcela) continue;
+    dividas += d.valorParcela;
+    linhas.push({ nome: d.credor, valor: d.valorParcela, tipo: 'divida' });
+  }
+
+  const total = fixas + variaveis + assinaturas + dividas;
+  const percentual = renda > 0 ? (total / renda) * 100 : null;
+
+  return {
+    renda: arredondar(renda),
+    fixas: arredondar(fixas),
+    variaveis: arredondar(variaveis),
+    assinaturas: arredondar(assinaturas),
+    dividas: arredondar(dividas),
+    total: arredondar(total),
+    percentual: percentual === null ? null : Math.round(percentual * 100) / 100,
+    livre: arredondar(renda - total),
+    situacao: faixaDaRenda(percentual),
+    linhas: linhas.sort((a, b) => b.valor - a.valor).map((l) => ({ ...l, valor: arredondar(l.valor) })),
+  };
+}
+
 /* ──────────────────────────────── Metas ──────────────────────────────── */
 
 export function progressoMeta(meta: { valorAtual: number; valorAlvo: number; prazo: string }) {

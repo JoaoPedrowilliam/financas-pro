@@ -9,7 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectVazio } from '@/components/ui/select';
+import {
+  Select, SelectContent, SelectItem, SelectLabel, SelectTrigger, SelectValue, SelectVazio,
+} from '@/components/ui/select';
 import { CampoValor } from '@/components/shared/campo-valor';
 import { SeletorBanco } from '@/components/shared/seletor-banco';
 import { CORES_CARTAO } from '@/components/cartoes/dialogs';
@@ -239,7 +241,7 @@ export function DialogRecorrencia({
   recorrencia?: Recorrencia | null;
   naturezaInicial?: Recorrencia['natureza'];
 }) {
-  const { contas, categorias, addRecorrencia, updateRecorrencia } = useFinancas();
+  const { contas, cartoes, categorias, addRecorrencia, updateRecorrencia } = useFinancas();
   const { executando, executar } = useAcao();
   const [form, setForm] = React.useState({
     nome: '',
@@ -248,6 +250,7 @@ export function DialogRecorrencia({
     valorPrevisto: 0,
     categoriaId: '',
     contaId: '',
+    cartaoId: '',
     diaVencimento: 10,
     periodicidade: 'mensal' as Periodicidade,
     lembreteDias: 3,
@@ -267,6 +270,7 @@ export function DialogRecorrencia({
             valorPrevisto: recorrencia.valorPrevisto,
             categoriaId: recorrencia.categoriaId ?? '',
             contaId: recorrencia.contaId ?? '',
+            cartaoId: recorrencia.cartaoId ?? '',
             diaVencimento: recorrencia.diaVencimento,
             periodicidade: recorrencia.periodicidade,
             lembreteDias: recorrencia.lembreteDias,
@@ -279,6 +283,7 @@ export function DialogRecorrencia({
             valorPrevisto: 0,
             categoriaId: '',
             contaId: contas[0]?.id ?? '',
+            cartaoId: '',
             diaVencimento: 10,
             periodicidade: 'mensal',
             lembreteDias: 3,
@@ -305,7 +310,9 @@ export function DialogRecorrencia({
       tipo: form.tipo,
       valorPrevisto: form.valorPrevisto,
       categoriaId: form.categoriaId || null,
-      contaId: form.contaId || null,
+      // Débito em conta e cobrança no cartão são excludentes: o seletor é um só.
+      contaId: form.cartaoId ? null : form.contaId || null,
+      cartaoId: form.cartaoId || null,
       diaVencimento: form.diaVencimento,
       periodicidade: form.periodicidade,
       inicioEm: recorrencia?.inicioEm ?? hojeISO(),
@@ -427,24 +434,52 @@ export function DialogRecorrencia({
 
           <div>
             <Label htmlFor="conta-rec">Debitada em</Label>
-            <Select value={form.contaId} onValueChange={(v) => set('contaId', v)}>
+            <Select
+              value={form.cartaoId ? `cartao:${form.cartaoId}` : form.contaId ? `conta:${form.contaId}` : ''}
+              onValueChange={(v) => {
+                const [origem, id] = v.split(':');
+                if (origem === 'cartao') {
+                  set('cartaoId', id);
+                  set('contaId', '');
+                } else {
+                  set('contaId', id);
+                  set('cartaoId', '');
+                }
+              }}
+            >
               <SelectTrigger id="conta-rec" className="mt-1.5">
-                <SelectValue placeholder="Escolher conta" />
+                <SelectValue placeholder="Escolher conta ou cartão" />
               </SelectTrigger>
               <SelectContent>
-                {contas.length ? (
-                  contas.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nome}
-                    </SelectItem>
-                  ))
-                ) : (
+                {contas.length === 0 && cartoes.length === 0 ? (
                   <SelectVazio>
                     Nenhuma conta cadastrada. Crie uma na aba &quot;Contas bancárias&quot;.
                   </SelectVazio>
+                ) : (
+                  <>
+                    {contas.length > 0 && <SelectLabel>Contas</SelectLabel>}
+                    {contas.map((c) => (
+                      <SelectItem key={c.id} value={`conta:${c.id}`}>
+                        {c.nome}
+                      </SelectItem>
+                    ))}
+                    {cartoes.length > 0 && <SelectLabel>Cartões de crédito</SelectLabel>}
+                    {cartoes
+                      .filter((c) => !c.arquivado && c.tipo !== 'debito')
+                      .map((c) => (
+                        <SelectItem key={c.id} value={`cartao:${c.id}`}>
+                          {c.nome}
+                        </SelectItem>
+                      ))}
+                  </>
                 )}
               </SelectContent>
             </Select>
+            {form.cartaoId ? (
+              <p className="mt-1 text-[11.5px] text-ink-faint">
+                Entra na fatura e compromete o limite do cartão, não o saldo da conta.
+              </p>
+            ) : null}
           </div>
 
           <div>

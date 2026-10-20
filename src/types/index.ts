@@ -203,6 +203,13 @@ export interface Perfil {
   inicioMesFinanceiro: number;
   ocultarValores: boolean;
   bloqueioPin?: string | null;
+  /**
+   * Renda mensal líquida — o que de fato cai na conta.
+   * Base do cálculo de comprometimento. Indefinido quando a pessoa ainda não
+   * informou: nesse caso não existe percentual, e a interface pede o valor em
+   * vez de mostrar zero.
+   */
+  rendaMensal?: number;
 }
 
 export interface EstadoFinanceiro {

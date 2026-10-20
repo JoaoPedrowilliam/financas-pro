@@ -28,13 +28,14 @@ import { mediaDaVariavel, saldoDaConta, saldoTotal } from '@/lib/financas';
 import { lembretesDoMes } from '@/lib/insights';
 import { dataCurta, moeda, percentual } from '@/lib/format';
 import { MESES_CURTOS, competenciaDe, dataDe, somar } from '@/lib/utils';
-import type { Conta, Recorrencia } from '@/types';
+import type { Conta, Recorrencia, Transacao } from '@/types';
 
 export default function PaginaContas() {
   const estado = useFinancas();
   const {
     contas, transacoes, recorrencias, categorias, perfil,
-    removeConta, removeRecorrencia, updateRecorrencia, alternarStatus, gerarLancamentosDoMes,
+    removeConta, removeRecorrencia, updateRecorrencia, alternarStatus, addTransacao,
+    gerarLancamentosDoMes,
   } = estado;
 
   const { executando, executar } = useAcao();
@@ -70,6 +71,49 @@ export default function PaginaContas() {
     setNatureza(n);
     setRecEditando(null);
     setRecDialog(true);
+  };
+
+  /**
+   * Marca a conta do mês como paga pelo círculo da lista.
+   *
+   * Quando o lançamento já existe, só alterna o status. Quando não existe — a
+   * recorrência vence no mês mas ninguém clicou em "Gerar lançamentos" —, cria
+   * o lançamento já pago. Antes disso o botão ficava desabilitado e a pessoa
+   * via a conta na lista sem conseguir dar baixa nela.
+   */
+  const marcarPagamento = async (
+    rec: Recorrencia,
+    lancamento: Transacao | undefined,
+    data: string,
+  ) => {
+    if (lancamento) {
+      await executar(() => alternarStatus(lancamento.id), {
+        aoFalhar: 'Não foi possível mudar o status',
+      });
+      return;
+    }
+
+    await executar(
+      async () => {
+        await addTransacao({
+          tipo: rec.tipo,
+          descricao: rec.nome,
+          // Nas variáveis o previsto é estimativa; a pessoa ajusta o valor
+          // depois em Finanças, quando a conta chegar.
+          valor: rec.valorPrevisto,
+          data,
+          categoriaId: rec.categoriaId,
+          contaId: rec.cartaoId ? null : rec.contaId,
+          cartaoId: rec.cartaoId ?? null,
+          status: 'pago',
+          etiquetas: [rec.natureza === 'fixa' ? 'conta fixa' : 'conta variável'],
+          anexos: [],
+          recorrenciaId: rec.id,
+        });
+        toast.success(`${rec.nome} marcada como paga`);
+      },
+      { aoFalhar: 'Não foi possível registrar o pagamento' },
+    );
   };
 
   const gerar = async () => {
@@ -154,13 +198,8 @@ export default function PaginaContas() {
                         className="flex flex-wrap items-center gap-3 rounded-control border border-line p-3"
                       >
                         <button
-                          onClick={() =>
-                            lancamento &&
-                            executar(() => alternarStatus(lancamento.id), {
-                              aoFalhar: 'Não foi possível mudar o status',
-                            })
-                          }
-                          disabled={!lancamento}
+                          onClick={() => marcarPagamento(recorrencia, lancamento, data)}
+                          disabled={executando}
                           aria-label={`Marcar ${recorrencia.nome} como ${pago ? 'pendente' : 'pago'}`}
                           className={`grid size-7 shrink-0 place-items-center rounded-full border transition-colors ${
                             pago

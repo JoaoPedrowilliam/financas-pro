@@ -1,0 +1,64 @@
+# Impede que o Supabase pause o projeto por inatividade.
+#
+# No plano gratuito, um projeto sem requisições à API por uma semana é pausado
+# e só volta com uma restauração manual no painel. Este workflow faz uma
+# consulta trivial ao banco duas vezes por semana, o que zera esse contador.
+#
+# Por que duas vezes e não uma: o limite é de sete dias. Com um ping semanal,
+# uma única execução falha (instabilidade do runner, manutenção) já deixaria a
+# janela fechar. Com segunda e quinta, qualquer execução sozinha basta.
+name: Manter o banco ativo
+
+on:
+  schedule:
+    # 12:00 UTC = 09:00 em Brasília. Segundas e quintas.
+    - cron: '0 12 * * 1,4'
+  # Permite disparar manualmente pela aba Actions, útil para testar.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consultar o banco
+        env:
+          # Mesma chave pública do deploy: ela já vai embutida no site e é
+          # protegida pelo RLS. Secret ou Variable do repositório têm
+          # precedência, se você cadastrar com estes nomes.
+          URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL || 'https://vkvghaejjxrivespyajo.supabase.co' }}
+          CHAVE: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || vars.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_OiAUGP5MY1HDhLiBz_TkEg_0YXvWRks' }}
+        run: |
+          set -uo pipefail
+
+          # A consulta é um SELECT em 'perfis' sem estar autenticado. O RLS
+          # devolve lista vazia — e é isso que queremos: a resposta não
+          # interessa, o que conta é a consulta ter chegado ao Postgres.
+          # Usar uma tabela real, e não a raiz da API, garante que o contador
+          # de inatividade enxergue atividade de banco de verdade.
+          codigo=$(curl -sS -o /tmp/resposta.txt -w '%{http_code}' \
+            --max-time 30 --retry 3 --retry-delay 10 --retry-all-errors \
+            -H "apikey: $CHAVE" \
+            -H "Authorization: Bearer $CHAVE" \
+            "$URL/rest/v1/perfis?select=id&limit=1") || codigo=000
+
+          echo "HTTP $codigo"
+          echo "Resposta: $(head -c 300 /tmp/resposta.txt)"
+
+          # 200 é o esperado (lista vazia). 401/403 também provam que o banco
+          # respondeu — basta isso para zerar o contador de inatividade.
+          case "$codigo" in
+            200|401|403)
+              echo "Banco respondeu. Contador de inatividade zerado."
+              ;;
+            000)
+              echo "::error::O projeto Supabase não respondeu. Ele provavelmente está pausado — restaure em https://supabase.com/dashboard e rode este workflow manualmente para confirmar."
+              exit 1
+              ;;
+            *)
+              echo "::error::Resposta inesperada do Supabase (HTTP $codigo). Confira a URL e a chave em Settings → Secrets and variables → Actions."
+              exit 1
+              ;;
+          esac

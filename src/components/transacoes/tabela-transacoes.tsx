@@ -84,7 +84,7 @@ export function TabelaTransacoes({
     return (
       <li
         key={t.id}
-        className="group flex items-center gap-3 border-b border-line px-3 py-2.5 last:border-0 hover:bg-surface-sunken"
+        className="group flex items-center gap-2 border-b border-line px-3 py-2.5 last:border-0 hover:bg-surface-sunken sm:gap-3"
       >
         <span className={cn('grid size-8 shrink-0 place-items-center rounded-control', classe)}>
           <Icone className="size-4" />
@@ -92,7 +92,16 @@ export function TabelaTransacoes({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <p className="truncate text-[13.5px] font-medium">{t.descricao}</p>
+            {/* Sem o texto de reserva, um lançamento sem descrição colapsa a
+                linha: ela encolhe e desalinha do cabeçalho do dia. */}
+            <p
+              className={cn(
+                'truncate text-[13.5px] font-medium',
+                !t.descricao?.trim() && 'italic text-ink-faint',
+              )}
+            >
+              {t.descricao?.trim() || 'Sem descrição'}
+            </p>
             {t.anexos.length > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -137,7 +146,10 @@ export function TabelaTransacoes({
           )}
         </div>
 
-        <span className="w-10 shrink-0 text-right text-[11.5px] text-ink-faint sm:w-12">
+        {/* Data e valor: ambos com largura fixa e sem quebra. A coluna do valor
+            precisa caber "-R$ 999.999,99" inteiro — com folga menor, um valor
+            grande quebrava em duas linhas ou encostava na data. */}
+        <span className="w-9 shrink-0 whitespace-nowrap text-right text-[11px] text-ink-faint sm:w-11 sm:text-[11.5px]">
           {dataCurta(t.data)}
         </span>
 
@@ -145,7 +157,7 @@ export function TabelaTransacoes({
           valor={t.tipo === 'despesa' ? -t.valor : t.valor}
           colorido={t.tipo !== 'transferencia'}
           sinal
-          className="w-24 shrink-0 text-right text-[13.5px] font-semibold sm:w-28"
+          className="w-28 shrink-0 whitespace-nowrap text-right text-[13.5px] font-semibold sm:w-32"
         />
 
         <DropdownMenu>

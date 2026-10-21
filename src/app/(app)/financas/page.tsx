@@ -261,7 +261,11 @@ function ConteudoFinancas() {
         </CardContent>
       </Card>
 
-      <Card className="overflow-hidden">
+      {/* overflow-clip, não overflow-hidden: `hidden` faz do card um contêiner de
+          rolagem, e o cabeçalho sticky do dia passa a se posicionar contra ele —
+          caindo 33px por cima da primeira linha mesmo sem rolagem. `clip`
+          recorta os cantos igual, sem criar contêiner de rolagem. */}
+      <Card className="overflow-clip">
         {filtradas.length ? (
           <TabelaTransacoes
             transacoes={filtradas}

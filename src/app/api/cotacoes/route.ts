@@ -32,19 +32,28 @@ const CRIPTO: Record<string, string> = {
   XRP: 'ripple',
 };
 
+/** Plano gratuito da brapi: 1 ticker por chamada e 1 chamada simultânea. */
 async function buscarB3(tickers: string[], token: string): Promise<Cotacao[]> {
-  const url = `https://brapi.dev/api/quote/${tickers.join(',')}?token=${token}`;
-  const resposta = await fetch(url, { next: { revalidate: 60 } });
-  if (!resposta.ok) throw new Error(`brapi respondeu ${resposta.status}`);
-  const json = (await resposta.json()) as {
-    results?: { symbol: string; regularMarketPrice: number; regularMarketChangePercent: number }[];
-  };
-  return (json.results ?? []).map((r) => ({
-    ticker: r.symbol.toUpperCase(),
-    preco: r.regularMarketPrice,
-    variacao: r.regularMarketChangePercent ?? null,
-    fonte: 'brapi' as const,
-  }));
+  const cotacoes: Cotacao[] = [];
+  for (const ticker of tickers) {
+    const resposta = await fetch(`https://brapi.dev/api/quote/${encodeURIComponent(ticker)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      next: { revalidate: 60 },
+    });
+    if (!resposta.ok) continue;
+    const json = (await resposta.json()) as {
+      results?: { symbol: string; regularMarketPrice: number; regularMarketChangePercent: number }[];
+    };
+    const r = json.results?.[0];
+    if (!r) continue;
+    cotacoes.push({
+      ticker: r.symbol.toUpperCase(),
+      preco: r.regularMarketPrice,
+      variacao: r.regularMarketChangePercent ?? null,
+      fonte: 'brapi' as const,
+    });
+  }
+  return cotacoes;
 }
 
 async function buscarCripto(tickers: string[]): Promise<Cotacao[]> {

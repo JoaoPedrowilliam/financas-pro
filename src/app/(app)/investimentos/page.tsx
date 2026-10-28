@@ -31,6 +31,7 @@ import { alocacaoPorClasse, resultadoCarteira } from '@/lib/financas';
 import { moeda, numero, percentual } from '@/lib/format';
 import { hojeISO } from '@/lib/utils';
 import type { Ativo, ClasseAtivo } from '@/types';
+import { buscarCotacoes } from '@/services/cotacoes';
 
 const CLASSES: { valor: ClasseAtivo; rotulo: string; cor: string }[] = [
   { valor: 'acao', rotulo: 'Ações', cor: 'hsl(var(--cedula))' },
@@ -62,21 +63,7 @@ export default function PaginaInvestimentos() {
     if (!ativos.length) return;
     setAtualizando(true);
     try {
-      const tickers = ativos.map((a) => a.ticker).join(',');
-      const resposta = await fetch(`/api/cotacoes?tickers=${encodeURIComponent(tickers)}`);
-      // Numa publicação estática (GitHub Pages) a rota não existe: vale avisar o
-      // motivo em vez de deixar um "404" cru na tela.
-      if (resposta.status === 404) {
-        throw new Error(
-          'Esta versão está publicada como site estático, sem servidor. Os preços já salvos continuam valendo; para atualizar automaticamente, rode o projeto localmente ou publique numa hospedagem com Node.',
-        );
-      }
-      if (!resposta.ok) throw new Error(`API respondeu ${resposta.status}`);
-
-      const dados = (await resposta.json()) as {
-        cotacoes: { ticker: string; preco: number; variacao: number | null; fonte: string }[];
-        avisos: string[];
-      };
+      const dados = await buscarCotacoes(ativos.map((a) => a.ticker));
 
       const precoAtualDe = new Map(ativos.map((a) => [a.ticker.toUpperCase(), a.precoAtual || a.precoMedio]));
 
@@ -100,8 +87,10 @@ export default function PaginaInvestimentos() {
       const simulados = dados.cotacoes.filter((c) => c.fonte === 'simulado').length;
       toast.success(`${dados.cotacoes.length} cotações atualizadas`, {
         description: simulados
-          ? `${simulados} vieram simuladas. Configure BRAPI_TOKEN no .env para dados reais da B3.`
-          : undefined,
+          ? `${simulados} vieram simuladas (renda fixa, ou BRAPI_TOKEN ainda não configurado no Supabase).`
+          : dados.avisos.length
+            ? dados.avisos.join(' · ')
+            : undefined,
       });
     } catch (erro) {
       toast.error('Não foi possível atualizar as cotações', {
